@@ -1,471 +1,471 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Workout App</title>
-    
-    <meta name="theme-color" content="#0c0a09">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link id="manifest-link" rel="manifest">
-    <link id="apple-touch-icon-link" rel="apple-touch-icon">
-    <link id="favicon-link" rel="icon">
-
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
-    <style>
-        html, body {
-            overscroll-behavior-y: contain; -webkit-tap-highlight-color: transparent;
-        }
-        body {
-            font-family: 'Inter', sans-serif; background-color: #0c0a09; color: #e7e5e4;
-            padding-top: env(safe-area-inset-top);
-        }
-        #app-content {
-            min-height: calc(100vh - (4rem + env(safe-area-inset-bottom)));
-            padding-bottom: calc(4rem + env(safe-area-inset-bottom));
-        }
-        #app-content.is-empty {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-        }
-        nav {
-            padding-bottom: env(safe-area-inset-bottom);
-            height: calc(4rem + env(safe-area-inset-bottom)); /* h-16 is 4rem */
-        }
-        .bottom-nav-active svg { color: #8b5cf6; } /* violet-500 */
-        .bottom-nav-active span { color: #e7e5e4; }
-        .app-content { transition: opacity 0.2s ease-in-out; }
-        .stepper-btn {
-            background-color: #292524; /* stone-800 */
-            transition: background-color 0.15s ease;
-        }
-        .stepper-btn:active {
-            background-color: #44403c; /* stone-700 */
-        }
-        .page-transition-exit { opacity: 0; transform: scale(0.95); }
-        .page-transition-enter { opacity: 1; transform: scale(1); }
-        .summary-card {
-            background: linear-gradient(145deg, #1c1917, #292524);
-            border: 1px solid #44403c;
-        }
-    </style>
-</head>
-<body class="text-gray-300">
-
-    <main id="app-content" class="app-content"></main>
-
-    <nav class="fixed bottom-0 left-0 right-0 bg-stone-900/80 backdrop-blur-sm border-t border-stone-800 flex justify-around z-50">
-        <button data-page="today" class="nav-button flex flex-col items-center justify-center text-stone-500 w-full transition-colors duration-200 bottom-nav-active pt-2 pb-1">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
-            <span class="text-xs font-medium mt-1">Oggi</span>
-        </button>
-        <button data-page="progress" class="nav-button flex flex-col items-center justify-center text-stone-500 w-full transition-colors duration-200 pt-2 pb-1">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-            <span class="text-xs font-medium mt-1">Progressi</span>
-        </button>
-        <button data-page="plan" class="nav-button flex flex-col items-center justify-center text-stone-500 w-full transition-colors duration-200 pt-2 pb-1">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
-            <span class="text-xs font-medium mt-1">Piano</span>
-        </button>
-    </nav>
-    
-    <div id="tooltip" style="position: absolute; text-align: center; padding: 8px; font-size: 12px; background: #1c1917; color: #e7e5e4; border: 1px solid #44403c; border-radius: 8px; pointer-events: none; opacity: 0; transition: opacity 0.2s;"></div>
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, query, where, Timestamp, getDocs, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        const workoutPlan = {
-            1: { key: 1, name: "Upper Body - Forza", icon: `🏋️‍♂️`, exercises: [ { name: "Panca Piana", sets: 4, reps: "6-8", rest: 120 }, { name: "Rematore", sets: 4, reps: "6-8", rest: 120 }, { name: "Lento Avanti", sets: 3, reps: "8-10", rest: 90 }, { name: "Trazioni", sets: 3, reps: "Max", rest: 90 }, { name: "Dip", sets: 3, reps: "8-12", rest: 60 }, { name: "Curl EZ", sets: 3, reps: "8-12", rest: 60 } ]},
-            2: { key: 2, name: "Lower Body - Forza", icon: `🦵`, exercises: [ { name: "Squat", sets: 4, reps: "6-8", rest: 120 }, { name: "Stacchi Rumeni", sets: 4, reps: "8-10", rest: 120 }, { name: "Leg Press", sets: 3, reps: "10-12", rest: 90 }, { name: "Affondi", sets: 3, reps: "10/gamba", rest: 90 }, { name: "Calf Raise", sets: 4, reps: "12-15", rest: 60 }, { name: "Plank", sets: 3, reps: "Max", rest: 60 } ]},
-            4: { key: 4, name: "Upper Body - Ipertrofia", icon: `💪`, exercises: [ { name: "Panca Inclinata", sets: 4, reps: "10-12", rest: 90 }, { name: "Pulley", sets: 4, reps: "10-12", rest: 90 }, { name: "Spinte Manubri", sets: 3, reps: "12-15", rest: 75 }, { name: "Alzate Laterali", sets: 3, reps: "12-15", rest: 60 }, { name: "French Press", sets: 3, reps: "12-15", rest: 60 }, { name: "Curl a Martello", sets: 3, reps: "12-15", rest: 60 } ]},
-            5: { key: 5, name: "Lower Body - Ipertrofia", icon: `🔥`, exercises: [ { name: "Front Squat", sets: 4, reps: "10-12", rest: 90 }, { name: "Leg Curl", sets: 4, reps: "12-15", rest: 75 }, { name: "Leg Extension", sets: 3, reps: "15-20", rest: 60 }, { name: "Hip Thrust", sets: 4, reps: "10-12", rest: 90 }, { name: "Calf Seduto", sets: 4, reps: "15-20", rest: 60 }, { name: "Crunch ai Cavi", sets: 3, reps: "15-20", rest: 60 } ]},
-        };
-        const allExercises = [...new Set(Object.values(workoutPlan).flatMap(day => day.exercises.map(ex => ex.name)))].sort();
+    <!DOCTYPE html>
+    <html lang="it">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+        <title>Workout App</title>
         
-        let userId = null; let activeWorkout = null;
-        let logsCache = new Map(); let lastUsedData = new Map();
-        let sessionPRs = [];
+        <meta name="theme-color" content="#0c0a09">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <link id="manifest-link" rel="manifest">
+        <link id="apple-touch-icon-link" rel="apple-touch-icon">
+        <link id="favicon-link" rel="icon">
 
-        const appContent = document.getElementById('app-content');
-        const navButtons = document.querySelectorAll('.nav-button');
-        let appState = { currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1, workoutStartTime: null, restDuration: 0 };
-        let db, auth;
-
-        const saveStateToLocalStorage = () => localStorage.setItem('appState', JSON.stringify({ ...appState, activeWorkout }));
-        const loadStateFromLocalStorage = () => {
-            const saved = localStorage.getItem('appState');
-            if (saved) {
-                const loadedState = JSON.parse(saved);
-                activeWorkout = loadedState.activeWorkout;
-                appState = { ...appState, ...loadedState, currentPage: loadedState.currentPage || 'today' };
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+        <style>
+            html, body {
+                overscroll-behavior-y: contain; -webkit-tap-highlight-color: transparent;
             }
-        };
+            body {
+                font-family: 'Inter', sans-serif; background-color: #0c0a09; color: #e7e5e4;
+                padding-top: env(safe-area-inset-top);
+            }
+            #app-content {
+                min-height: calc(100vh - (4rem + env(safe-area-inset-bottom)));
+                padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+            }
+            #app-content.is-empty {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+            }
+            nav {
+                padding-bottom: env(safe-area-inset-bottom);
+                height: calc(4rem + env(safe-area-inset-bottom)); /* h-16 is 4rem */
+            }
+            .bottom-nav-active svg { color: #8b5cf6; } /* violet-500 */
+            .bottom-nav-active span { color: #e7e5e4; }
+            .app-content { transition: opacity 0.2s ease-in-out; }
+            .stepper-btn {
+                background-color: #292524; /* stone-800 */
+                transition: background-color 0.15s ease;
+            }
+            .stepper-btn:active {
+                background-color: #44403c; /* stone-700 */
+            }
+            .page-transition-exit { opacity: 0; transform: scale(0.95); }
+            .page-transition-enter { opacity: 1; transform: scale(1); }
+            .summary-card {
+                background: linear-gradient(145deg, #1c1917, #292524);
+                border: 1px solid #44403c;
+            }
+        </style>
+    </head>
+    <body class="text-gray-300">
 
-        const getTodayAsString = () => new Date().toISOString().split('T')[0];
-        const vibrate = (duration = 50) => { if ('vibrate' in navigator) { navigator.vibrate(duration); } };
+        <main id="app-content" class="app-content"></main>
 
-        const handleStepper = (e) => {
-            vibrate(20);
-            const control = e.currentTarget.dataset.control;
-            const [target, action] = control.split('-');
-            const valueEl = document.getElementById(`${target}-value`);
-            if (!valueEl) return;
-            let currentValue = parseFloat(valueEl.textContent);
-            const step = target === 'weight' ? 2.5 : 1;
-            if (action === 'plus') currentValue += step;
-            else if (action === 'minus') currentValue -= step;
-            valueEl.textContent = Math.max(0, currentValue);
-        };
+        <nav class="fixed bottom-0 left-0 right-0 bg-stone-900/80 backdrop-blur-sm border-t border-stone-800 flex justify-around z-50">
+            <button data-page="today" class="nav-button flex flex-col items-center justify-center text-stone-500 w-full transition-colors duration-200 bottom-nav-active pt-2 pb-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                <span class="text-xs font-medium mt-1">Oggi</span>
+            </button>
+            <button data-page="progress" class="nav-button flex flex-col items-center justify-center text-stone-500 w-full transition-colors duration-200 pt-2 pb-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                <span class="text-xs font-medium mt-1">Progressi</span>
+            </button>
+            <button data-page="plan" class="nav-button flex flex-col items-center justify-center text-stone-500 w-full transition-colors duration-200 pt-2 pb-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                <span class="text-xs font-medium mt-1">Piano</span>
+            </button>
+        </nav>
         
-        const checkAndSavePR = async (logData) => {
-            if (logData.reps <= 0 || logData.weight <= 0) return;
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const prRef = doc(db, `artifacts/${appId}/users/${userId}/personal_records`, logData.exerciseName);
-            const prDoc = await getDoc(prRef);
-            let prs = prDoc.exists() ? prDoc.data() : {};
-            const prKey = `${logData.reps}reps`;
-            if (!prs[prKey] || logData.weight > prs[prKey]) {
-                prs[prKey] = logData.weight;
-                await setDoc(prRef, prs, { merge: true });
-                sessionPRs.push({ exercise: logData.exerciseName, pr: `${logData.weight}kg x ${logData.reps}` });
-            }
-        };
+        <div id="tooltip" style="position: absolute; text-align: center; padding: 8px; font-size: 12px; background: #1c1917; color: #e7e5e4; border: 1px solid #44403c; border-radius: 8px; pointer-events: none; opacity: 0; transition: opacity 0.2s;"></div>
 
-        const handleLogSet = async () => {
-            vibrate();
-            const ex = activeWorkout.exercises[appState.currentExerciseIndex];
-            const weight = parseFloat(document.getElementById('weight-value').textContent);
-            const reps = parseInt(document.getElementById('reps-value').textContent);
-            if (reps <= 0) { alert("Le ripetizioni devono essere maggiori di zero."); return; }
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const logData = { userId, date: getTodayAsString(), workoutKey: activeWorkout.key, workoutName: activeWorkout.name, exerciseName: ex.name, setIndex: appState.currentSetIndex, weight, reps, volume: weight * reps, timestamp: Timestamp.now() };
-            try {
-                await addDoc(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), logData);
-                await checkAndSavePR(logData);
-                lastUsedData.set(ex.name, { weight, reps });
-                logsCache.delete(getTodayAsString());
-                
-                if (appState.currentSetIndex >= ex.sets) {
-                    appState.currentExerciseIndex++;
-                    if (appState.currentExerciseIndex >= activeWorkout.exercises.length) {
-                        handleFinishWorkout();
+        <script type="module">
+            import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+            import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+            import { getFirestore, collection, addDoc, query, where, Timestamp, getDocs, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+            const workoutPlan = {
+                1: { key: 1, name: "Upper Body - Forza", icon: `🏋️‍♂️`, exercises: [ { name: "Panca Piana", sets: 4, reps: "6-8", rest: 120 }, { name: "Rematore", sets: 4, reps: "6-8", rest: 120 }, { name: "Lento Avanti", sets: 3, reps: "8-10", rest: 90 }, { name: "Trazioni", sets: 3, reps: "Max", rest: 90 }, { name: "Dip", sets: 3, reps: "8-12", rest: 60 }, { name: "Curl EZ", sets: 3, reps: "8-12", rest: 60 } ]},
+                2: { key: 2, name: "Lower Body - Forza", icon: `🦵`, exercises: [ { name: "Squat", sets: 4, reps: "6-8", rest: 120 }, { name: "Stacchi Rumeni", sets: 4, reps: "8-10", rest: 120 }, { name: "Leg Press", sets: 3, reps: "10-12", rest: 90 }, { name: "Affondi", sets: 3, reps: "10/gamba", rest: 90 }, { name: "Calf Raise", sets: 4, reps: "12-15", rest: 60 }, { name: "Plank", sets: 3, reps: "Max", rest: 60 } ]},
+                4: { key: 4, name: "Upper Body - Ipertrofia", icon: `💪`, exercises: [ { name: "Panca Inclinata", sets: 4, reps: "10-12", rest: 90 }, { name: "Pulley", sets: 4, reps: "10-12", rest: 90 }, { name: "Spinte Manubri", sets: 3, reps: "12-15", rest: 75 }, { name: "Alzate Laterali", sets: 3, reps: "12-15", rest: 60 }, { name: "French Press", sets: 3, reps: "12-15", rest: 60 }, { name: "Curl a Martello", sets: 3, reps: "12-15", rest: 60 } ]},
+                5: { key: 5, name: "Lower Body - Ipertrofia", icon: `🔥`, exercises: [ { name: "Front Squat", sets: 4, reps: "10-12", rest: 90 }, { name: "Leg Curl", sets: 4, reps: "12-15", rest: 75 }, { name: "Leg Extension", sets: 3, reps: "15-20", rest: 60 }, { name: "Hip Thrust", sets: 4, reps: "10-12", rest: 90 }, { name: "Calf Seduto", sets: 4, reps: "15-20", rest: 60 }, { name: "Crunch ai Cavi", sets: 3, reps: "15-20", rest: 60 } ]},
+            };
+            const allExercises = [...new Set(Object.values(workoutPlan).flatMap(day => day.exercises.map(ex => ex.name)))].sort();
+            
+            let userId = null; let activeWorkout = null;
+            let logsCache = new Map(); let lastUsedData = new Map();
+            let sessionPRs = [];
+
+            const appContent = document.getElementById('app-content');
+            const navButtons = document.querySelectorAll('.nav-button');
+            let appState = { currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1, workoutStartTime: null, restDuration: 0 };
+            let db, auth;
+
+            const saveStateToLocalStorage = () => localStorage.setItem('appState', JSON.stringify({ ...appState, activeWorkout }));
+            const loadStateFromLocalStorage = () => {
+                const saved = localStorage.getItem('appState');
+                if (saved) {
+                    const loadedState = JSON.parse(saved);
+                    activeWorkout = loadedState.activeWorkout;
+                    appState = { ...appState, ...loadedState, currentPage: loadedState.currentPage || 'today' };
+                }
+            };
+
+            const getTodayAsString = () => new Date().toISOString().split('T')[0];
+            const vibrate = (duration = 50) => { if ('vibrate' in navigator) { navigator.vibrate(duration); } };
+
+            const handleStepper = (e) => {
+                vibrate(20);
+                const control = e.currentTarget.dataset.control;
+                const [target, action] = control.split('-');
+                const valueEl = document.getElementById(`${target}-value`);
+                if (!valueEl) return;
+                let currentValue = parseFloat(valueEl.textContent);
+                const step = target === 'weight' ? 2.5 : 1;
+                if (action === 'plus') currentValue += step;
+                else if (action === 'minus') currentValue -= step;
+                valueEl.textContent = Math.max(0, currentValue);
+            };
+            
+            const checkAndSavePR = async (logData) => {
+                if (logData.reps <= 0 || logData.weight <= 0) return;
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const prRef = doc(db, `artifacts/${appId}/users/${userId}/personal_records`, logData.exerciseName);
+                const prDoc = await getDoc(prRef);
+                let prs = prDoc.exists() ? prDoc.data() : {};
+                const prKey = `${logData.reps}reps`;
+                if (!prs[prKey] || logData.weight > prs[prKey]) {
+                    prs[prKey] = logData.weight;
+                    await setDoc(prRef, prs, { merge: true });
+                    sessionPRs.push({ exercise: logData.exerciseName, pr: `${logData.weight}kg x ${logData.reps}` });
+                }
+            };
+
+            const handleLogSet = async () => {
+                vibrate();
+                const ex = activeWorkout.exercises[appState.currentExerciseIndex];
+                const weight = parseFloat(document.getElementById('weight-value').textContent);
+                const reps = parseInt(document.getElementById('reps-value').textContent);
+                if (reps <= 0) { alert("Le ripetizioni devono essere maggiori di zero."); return; }
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const logData = { userId, date: getTodayAsString(), workoutKey: activeWorkout.key, workoutName: activeWorkout.name, exerciseName: ex.name, setIndex: appState.currentSetIndex, weight, reps, volume: weight * reps, timestamp: Timestamp.now() };
+                try {
+                    await addDoc(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), logData);
+                    await checkAndSavePR(logData);
+                    lastUsedData.set(ex.name, { weight, reps });
+                    logsCache.delete(getTodayAsString());
+                    
+                    if (appState.currentSetIndex >= ex.sets) {
+                        appState.currentExerciseIndex++;
+                        if (appState.currentExerciseIndex >= activeWorkout.exercises.length) {
+                            handleFinishWorkout();
+                        } else {
+                            appState.currentSetIndex = 1;
+                            appState.currentPage = 'today';
+                            saveStateToLocalStorage();
+                            renderApp();
+                        }
                     } else {
-                        appState.currentSetIndex = 1;
-                        appState.currentPage = 'today';
+                        appState.currentPage = 'rest';
+                        appState.restDuration = ex.rest;
                         saveStateToLocalStorage();
                         renderApp();
                     }
-                } else {
-                    appState.currentPage = 'rest';
-                    appState.restDuration = ex.rest;
-                    saveStateToLocalStorage();
-                    renderApp();
+                } catch (error) { console.error("Errore salvataggio:", error); }
+            };
+
+            const fetchLastUsedDataForExercise = async (exerciseName) => {
+                if (lastUsedData.has(exerciseName)) return lastUsedData.get(exerciseName);
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const q = query(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), where("exerciseName", "==", exerciseName));
+                const snapshot = await getDocs(q);
+                if (!snapshot.empty) {
+                    const docs = snapshot.docs.map(doc => doc.data());
+                    docs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
+                    const lastLog = docs[0];
+                    const data = { weight: lastLog.weight, reps: lastLog.reps };
+                    lastUsedData.set(exerciseName, data);
+                    return data;
                 }
-            } catch (error) { console.error("Errore salvataggio:", error); }
-        };
+                return null;
+            };
 
-        const fetchLastUsedDataForExercise = async (exerciseName) => {
-            if (lastUsedData.has(exerciseName)) return lastUsedData.get(exerciseName);
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const q = query(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), where("exerciseName", "==", exerciseName));
-            const snapshot = await getDocs(q);
-            if (!snapshot.empty) {
-                const docs = snapshot.docs.map(doc => doc.data());
-                docs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
-                const lastLog = docs[0];
-                const data = { weight: lastLog.weight, reps: lastLog.reps };
-                lastUsedData.set(exerciseName, data);
-                return data;
-            }
-            return null;
-        };
+            const handleStartWorkout = (e) => {
+                const key = e.currentTarget.dataset.workoutKey;
+                activeWorkout = workoutPlan[key];
+                appState = { ...appState, currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1, workoutStartTime: Date.now() };
+                sessionPRs = [];
+                lastUsedData.clear();
+                saveStateToLocalStorage();
+                renderApp();
+            };
 
-        const handleStartWorkout = (e) => {
-            const key = e.currentTarget.dataset.workoutKey;
-            activeWorkout = workoutPlan[key];
-            appState = { ...appState, currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1, workoutStartTime: Date.now() };
-            sessionPRs = [];
-            lastUsedData.clear();
-            saveStateToLocalStorage();
-            renderApp();
-        };
+            const handleFinishWorkout = () => {
+                appState.currentPage = 'summary';
+                renderApp();
+            };
 
-        const handleFinishWorkout = () => {
-            appState.currentPage = 'summary';
-            renderApp();
-        };
-
-        const handleCloseSummary = () => {
-            activeWorkout = null;
-            appState = { ...appState, currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1 };
-            localStorage.removeItem('appState');
-            renderApp();
-        };
-        
-        const renderTodayPage = async () => {
-            if (activeWorkout && appState.currentExerciseIndex !== null) {
-                return await renderExerciseFocusMode();
-            }
-            if (activeWorkout) {
-                 const todayStr = getTodayAsString();
-                if (!logsCache.has(todayStr)) {
-                    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                    const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
-                    const q = query(logsRef, where("date", "==", todayStr), where("workoutKey", "==", activeWorkout.key));
-                    const snapshot = await getDocs(q);
-                    const logs = {};
-                    snapshot.forEach(doc => { const data = doc.data(); if (!logs[data.exerciseName]) logs[data.exerciseName] = []; logs[data.exerciseName][data.setIndex - 1] = true; });
-                    logsCache.set(todayStr, logs);
+            const handleCloseSummary = () => {
+                activeWorkout = null;
+                appState = { ...appState, currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1 };
+                localStorage.removeItem('appState');
+                renderApp();
+            };
+            
+            const renderTodayPage = async () => {
+                if (activeWorkout && appState.currentExerciseIndex !== null) {
+                    return await renderExerciseFocusMode();
                 }
-                const todayLogs = logsCache.get(todayStr) || {};
-                return `<div class="p-4 space-y-4"> <div class="flex justify-between items-start"> <div><p class="font-bold text-violet-400">Sessione Attiva</p><h1 class="text-3xl font-bold text-white mt-1">${activeWorkout.name}</h1></div> <button id="finish-workout" class="bg-stone-800 text-sm font-semibold text-stone-300 py-2 px-4 rounded-lg">Termina Sessione</button> </div> <div class="space-y-3"> ${activeWorkout.exercises.map((ex, index) => { const isCompleted = todayLogs[ex.name]?.filter(Boolean).length >= ex.sets; return `<button data-ex-index="${index}" class="start-exercise-btn w-full text-left p-4 rounded-xl shadow-lg flex items-center justify-between transition-transform duration-200 active:scale-95 ${isCompleted ? 'bg-green-900/50 border border-green-700' : 'bg-stone-900 border border-stone-800'}"><div><h3 class="font-bold text-lg ${isCompleted ? 'text-green-300' : 'text-white'}">${ex.name}</h3><p class="text-sm ${isCompleted ? 'text-green-400/80' : 'text-stone-400'}">${ex.sets} x ${ex.reps} reps</p></div> ${isCompleted ? '<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>'}</button>` }).join('')} </div> </div>`;
-            }
-            return `<div class="p-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-violet-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg><h1 class="text-2xl font-bold text-white mt-4">Nessun Allenamento Attivo</h1><p class="text-stone-400 mt-2 max-w-xs mx-auto">Vai alla sezione "Piano" per scegliere e iniziare la tua sessione di oggi.</p><button class="go-to-plan-btn mt-6 bg-violet-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg">Scegli Allenamento</button></div>`;
-        };
-
-        const renderExerciseFocusMode = async () => {
-            const ex = activeWorkout.exercises[appState.currentExerciseIndex];
-            const lastData = lastUsedData.get(ex.name) || await fetchLastUsedDataForExercise(ex.name) || { weight: 0, reps: 0 };
-            lastUsedData.set(ex.name, lastData);
-            const progressDots = Array.from({length: ex.sets}, (_, i) => `<div class="h-2 w-2 rounded-full ${i < appState.currentSetIndex - 1 ? 'bg-violet-500' : 'bg-stone-700'}"></div>`).join('');
-            return `<div class="h-screen flex flex-col p-4 bg-stone-950"> <div class="flex items-center"><button id="back-to-overview" class="p-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg></button><div class="text-center flex-1"><h2 class="font-bold text-xl text-white">${ex.name}</h2><p class="text-stone-400 text-sm">${ex.sets} x ${ex.reps} reps</p></div><div class="w-8"></div></div> <div class="flex-1 flex flex-col items-center justify-center"><p class="font-bold text-stone-400">SERIE ${appState.currentSetIndex}</p><div class="flex items-center gap-4 my-8"><div class="text-center"><label class="text-sm font-bold text-stone-300">PESO (KG)</label><div class="flex items-center gap-2 mt-2"><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="weight-minus">-</button><span id="weight-value" class="text-6xl font-black text-white w-32 text-center">${lastData.weight}</span><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="weight-plus">+</button></div></div></div><div class="flex items-center gap-4"><div class="text-center"><label class="text-sm font-bold text-stone-300">REPS</label><div class="flex items-center gap-2 mt-2"><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="reps-minus">-</button><span id="reps-value" class="text-6xl font-black text-white w-32 text-center">${lastData.reps}</span><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="reps-plus">+</button></div></div></div></div> <div class="flex items-center justify-center gap-2 mb-4">${progressDots}</div><button id="log-set-btn" class="w-full bg-gradient-to-r from-violet-600 to-violet-800 text-white font-bold text-lg py-5 rounded-2xl shadow-lg active:scale-95 transition-transform duration-200">REGISTRA SERIE</button> </div>`;
-        };
-        
-        const renderRestTimer = (duration) => {
-            return `<div class="h-screen flex flex-col items-center justify-center bg-black p-4 text-center" data-duration="${duration}"><div class="relative w-64 h-64 flex items-center justify-center"><svg class="absolute inset-0 w-full h-full" viewBox="0 0 100 100"><circle class="text-stone-800" stroke-width="5" stroke="currentColor" fill="transparent" r="45" cx="50" cy="50" /><circle id="timer-progress-ring" class="text-violet-500" stroke-width="5" stroke="currentColor" fill="transparent" r="45" cx="50" cy="50" stroke-dasharray="282.6" stroke-dashoffset="282.6" transform="rotate(-90 50 50)" style="transition: stroke-dashoffset 1s linear;"/></svg><div class="z-10"><p class="text-6xl font-black text-white">${duration}</p><p class="text-stone-400 font-bold tracking-widest">RECUPERO</p></div></div><div class="flex items-center gap-4 mt-12"><button id="subtract-time-btn" class="bg-stone-800 text-stone-300 font-semibold py-3 px-5 rounded-lg">-15s</button><button id="skip-rest-btn" class="bg-violet-600 text-white font-semibold py-3 px-6 rounded-lg">Salta</button><button id="add-time-btn" class="bg-stone-800 text-stone-300 font-semibold py-3 px-5 rounded-lg">+15s</button></div></div>`;
-        };
-        
-        const renderPlanPage = () => {
-            const planHtml = Object.values(workoutPlan).map(w => `<div class="bg-stone-900 border border-stone-800 rounded-xl shadow-md space-y-3 p-4"> <div class="flex items-center gap-4"> <span class="text-4xl">${w.icon}</span> <div> <h3 class="font-bold text-xl text-white">${w.name}</h3> <p class="text-sm text-stone-400">${w.exercises.length} esercizi</p> </div> </div> <button class="start-workout-btn w-full bg-violet-600 hover:bg-violet-500 text-white font-semibold py-3 px-5 rounded-lg shadow-lg transition-all duration-200 active:scale-95" data-workout-key="${w.key}">Inizia Allenamento</button> </div>`).join('');
-            return `<div class="p-4 space-y-4"><div><h1 class="text-3xl font-bold text-white">Il tuo Piano</h1><p class="text-stone-400">Scegli la sessione da iniziare oggi.</p></div>${planHtml}</div>`;
-        };
-
-        const renderProgressPage = () => {
-             return `<div class="p-4 space-y-6"><div><h1 class="text-3xl font-bold text-white">I tuoi Progressi</h1><p class="text-stone-400">Analizza i tuoi allenamenti passati.</p></div><div><select id="progress-exercise-filter" class="w-full bg-stone-900 border border-stone-800 rounded-lg p-3 shadow-sm"><option value="">-- Seleziona Esercizio --</option>${allExercises.map(ex => `<option value="${ex}">${ex}</option>`).join('')}</select></div><div id="progress-chart-container" class="bg-stone-900 p-2 rounded-xl border border-stone-800 min-h-[300px] shadow-lg"><p class="text-center text-stone-500 p-10">Seleziona un esercizio per visualizzare il grafico dei tuoi progressi.</p></div></div>`;
-        };
-        
-        const renderWorkoutSummary = async () => {
-            if (!activeWorkout) return "<div>Error: No active workout to summarize.</div>";
-            const todayStr = getTodayAsString();
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
-            const q = query(logsRef, where("date", "==", todayStr), where("workoutKey", "==", activeWorkout.key));
-            const snapshot = await getDocs(q);
-            let totalVolume = 0;
-            snapshot.forEach(doc => { totalVolume += doc.data().volume; });
-            const duration = appState.workoutStartTime ? Math.round((Date.now() - appState.workoutStartTime) / 60000) : 0;
-            return `<div class="h-screen flex flex-col items-center justify-center text-center p-4"> <span class="text-6xl mb-4">🎉</span> <h1 class="text-3xl font-black text-white">Allenamento Completato!</h1> <p class="text-stone-400 mt-1">Ottimo lavoro. Ecco il tuo riepilogo:</p> <div class="w-full max-w-md space-y-3 mt-8"> <div class="summary-card p-4 rounded-xl flex justify-between items-center"><p class="font-semibold text-stone-300">Durata</p><p class="font-bold text-2xl text-white">${duration}<span class="text-base text-stone-400 ml-1">min</span></p></div> <div class="summary-card p-4 rounded-xl flex justify-between items-center"><p class="font-semibold text-stone-300">Volume Totale</p><p class="font-bold text-2xl text-white">${Math.round(totalVolume)}<span class="text-base text-stone-400 ml-1">kg</span></p></div> <div class="summary-card p-4 rounded-xl flex justify-between items-center"><p class="font-semibold text-stone-300">Nuovi Record (PRs)</p><p class="font-bold text-2xl text-yellow-400">${sessionPRs.length}</p></div> </div> <button id="close-summary-btn" class="mt-8 w-full max-w-md bg-violet-600 text-white font-semibold py-4 rounded-lg">Chiudi</button> </div>`;
-        };
-        
-        const renderProgressChart = async () => {
-            const container = d3.select("#progress-chart-container");
-            container.html('');
-            const exerciseName = d3.select("#progress-exercise-filter").node().value;
-            if (!exerciseName || !userId) { container.append("p").attr("class", "text-center text-stone-500 p-10").text("Seleziona un esercizio."); return; }
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
-            const q = query(logsRef, where("exerciseName", "==", exerciseName));
-            const snapshot = await getDocs(q);
-            if (snapshot.empty) { container.append("p").attr("class", "text-center text-stone-500 p-10").text("Nessun dato per questo esercizio."); return; }
-            let data = snapshot.docs.map(doc => ({ date: doc.data().timestamp.toDate(), value: doc.data().weight }));
-            data.sort((a, b) => a.date - b.date);
-            const margin = {top: 20, right: 20, bottom: 40, left: 40}, width = container.node().getBoundingClientRect().width - margin.left - margin.right, height = 300 - margin.top - margin.bottom;
-            const svg = container.append("svg").attr("width", width + margin.left + margin.right).attr("height", height + margin.top + margin.bottom).append("g").attr("transform", `translate(${margin.left},${margin.top})`);
-            const x = d3.scaleTime().domain(d3.extent(data, d => d.date)).range([0, width]);
-            svg.append("g").attr("transform", `translate(0, ${height})`).call(d3.axisBottom(x).ticks(5).tickFormat(d3.timeFormat("%d/%m"))).selectAll("text").attr("class", "chart-axis-text");
-            const y = d3.scaleLinear().domain([0, d3.max(data, d => d.value) * 1.1]).range([height, 0]);
-            svg.append("g").call(d3.axisLeft(y).ticks(5)).selectAll("text").attr("class", "chart-axis-text");
-            svg.selectAll(".domain, .tick line").attr("stroke", "#44403c");
-            svg.append("path").datum(data).attr("class", "chart-line").attr("d", d3.line().x(d => x(d.date)).y(d => y(d.value)));
-            const tooltip = d3.select("#tooltip");
-            svg.selectAll("dots").data(data).enter().append("circle").attr("class", "chart-dot").attr("cx", d => x(d.date)).attr("cy", d => y(d.value)).attr("r", 5)
-                .on("mouseover", (event, d) => tooltip.style("opacity", 1))
-                .on("mousemove", (event, d) => tooltip.html(`<b>${d.value} kg</b><br>${d.date.toLocaleDateString('it-IT')}`).style("left", (event.pageX + 15) + "px").style("top", (event.pageY - 28) + "px"))
-                .on("mouseout", () => tooltip.style("opacity", 0));
-        };
-        
-        const attachEventListeners = () => {
-            const page = appState.currentPage;
-            if (page === 'today') {
                 if (activeWorkout) {
-                    if (appState.currentExerciseIndex === null) {
-                        document.querySelectorAll('.start-exercise-btn').forEach(b => b.addEventListener('click', (e) => {
-                            appState.currentExerciseIndex = parseInt(e.currentTarget.dataset.exIndex);
-                            saveStateToLocalStorage();
-                            renderApp();
-                        }));
-                        document.getElementById('finish-workout')?.addEventListener('click', handleFinishWorkout);
-                    } else {
-                        document.getElementById('back-to-overview')?.addEventListener('click', () => {
-                            appState.currentExerciseIndex = null;
-                            saveStateToLocalStorage();
-                            renderApp();
-                        });
-                        document.querySelectorAll('.stepper-btn').forEach(b => b.addEventListener('click', handleStepper));
-                        document.getElementById('log-set-btn')?.addEventListener('click', handleLogSet);
+                    const todayStr = getTodayAsString();
+                    if (!logsCache.has(todayStr)) {
+                        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                        const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
+                        const q = query(logsRef, where("date", "==", todayStr), where("workoutKey", "==", activeWorkout.key));
+                        const snapshot = await getDocs(q);
+                        const logs = {};
+                        snapshot.forEach(doc => { const data = doc.data(); if (!logs[data.exerciseName]) logs[data.exerciseName] = []; logs[data.exerciseName][data.setIndex - 1] = true; });
+                        logsCache.set(todayStr, logs);
                     }
-                } else {
-                     document.querySelector('.go-to-plan-btn')?.addEventListener('click', () => navigate('plan'));
+                    const todayLogs = logsCache.get(todayStr) || {};
+                    return `<div class="p-4 space-y-4"> <div class="flex justify-between items-start"> <div><p class="font-bold text-violet-400">Sessione Attiva</p><h1 class="text-3xl font-bold text-white mt-1">${activeWorkout.name}</h1></div> <button id="finish-workout" class="bg-stone-800 text-sm font-semibold text-stone-300 py-2 px-4 rounded-lg">Termina Sessione</button> </div> <div class="space-y-3"> ${activeWorkout.exercises.map((ex, index) => { const isCompleted = todayLogs[ex.name]?.filter(Boolean).length >= ex.sets; return `<button data-ex-index="${index}" class="start-exercise-btn w-full text-left p-4 rounded-xl shadow-lg flex items-center justify-between transition-transform duration-200 active:scale-95 ${isCompleted ? 'bg-green-900/50 border border-green-700' : 'bg-stone-900 border border-stone-800'}"><div><h3 class="font-bold text-lg ${isCompleted ? 'text-green-300' : 'text-white'}">${ex.name}</h3><p class="text-sm ${isCompleted ? 'text-green-400/80' : 'text-stone-400'}">${ex.sets} x ${ex.reps} reps</p></div> ${isCompleted ? '<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>'}</button>` }).join('')} </div> </div>`;
                 }
-            } else if (page === 'plan') {
-                document.querySelectorAll('.start-workout-btn').forEach(b => b.addEventListener('click', handleStartWorkout));
-            } else if (page === 'progress') {
-                document.getElementById('progress-exercise-filter')?.addEventListener('change', renderProgressChart);
-            } else if (page === 'summary') {
-                document.getElementById('close-summary-btn')?.addEventListener('click', handleCloseSummary);
-            } else if (page === 'rest') {
-                const timerContainer = document.querySelector(`[data-duration]`);
-                if (!timerContainer) return;
-                let duration = parseInt(timerContainer.dataset.duration);
-                const synth = new Tone.Synth().toDestination();
-                let timeLeft = duration;
-                const progressRing = document.getElementById('timer-progress-ring');
-                const timeLeftEl = appContent.querySelector('.text-6xl');
-                
-                const updateTimerDisplay = () => {
-                    if (timeLeftEl) timeLeftEl.textContent = timeLeft;
-                    const progress = (duration - timeLeft) / duration;
-                    if(progressRing) progressRing.style.strokeDashoffset = 282.6 * (1 - progress);
-                };
+                return `<div class="p-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-violet-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg><h1 class="text-2xl font-bold text-white mt-4">Nessun Allenamento Attivo</h1><p class="text-stone-400 mt-2 max-w-xs mx-auto">Vai alla sezione "Piano" per scegliere e iniziare la tua sessione di oggi.</p><button class="go-to-plan-btn mt-6 bg-violet-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg">Scegli Allenamento</button></div>`;
+            };
 
-                const interval = setInterval(() => {
-                    timeLeft--;
-                    updateTimerDisplay();
-                    if (timeLeft <= 0) {
+            const renderExerciseFocusMode = async () => {
+                const ex = activeWorkout.exercises[appState.currentExerciseIndex];
+                const lastData = lastUsedData.get(ex.name) || await fetchLastUsedDataForExercise(ex.name) || { weight: 0, reps: 0 };
+                lastUsedData.set(ex.name, lastData);
+                const progressDots = Array.from({length: ex.sets}, (_, i) => `<div class="h-2 w-2 rounded-full ${i < appState.currentSetIndex - 1 ? 'bg-violet-500' : 'bg-stone-700'}"></div>`).join('');
+                return `<div class="h-screen flex flex-col p-4 bg-stone-950"> <div class="flex items-center"><button id="back-to-overview" class="p-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg></button><div class="text-center flex-1"><h2 class="font-bold text-xl text-white">${ex.name}</h2><p class="text-stone-400 text-sm">${ex.sets} x ${ex.reps} reps</p></div><div class="w-8"></div></div> <div class="flex-1 flex flex-col items-center justify-center"><p class="font-bold text-stone-400">SERIE ${appState.currentSetIndex}</p><div class="flex items-center gap-4 my-8"><div class="text-center"><label class="text-sm font-bold text-stone-300">PESO (KG)</label><div class="flex items-center gap-2 mt-2"><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="weight-minus">-</button><span id="weight-value" class="text-6xl font-black text-white w-32 text-center">${lastData.weight}</span><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="weight-plus">+</button></div></div></div><div class="flex items-center gap-4"><div class="text-center"><label class="text-sm font-bold text-stone-300">REPS</label><div class="flex items-center gap-2 mt-2"><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="reps-minus">-</button><span id="reps-value" class="text-6xl font-black text-white w-32 text-center">${lastData.reps}</span><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="reps-plus">+</button></div></div></div></div> <div class="flex items-center justify-center gap-2 mb-4">${progressDots}</div><button id="log-set-btn" class="w-full bg-gradient-to-r from-violet-600 to-violet-800 text-white font-bold text-lg py-5 rounded-2xl shadow-lg active:scale-95 transition-transform duration-200">REGISTRA SERIE</button> </div>`;
+            };
+            
+            const renderRestTimer = (duration) => {
+                return `<div class="h-screen flex flex-col items-center justify-center bg-black p-4 text-center" data-duration="${duration}"><div class="relative w-64 h-64 flex items-center justify-center"><svg class="absolute inset-0 w-full h-full" viewBox="0 0 100 100"><circle class="text-stone-800" stroke-width="5" stroke="currentColor" fill="transparent" r="45" cx="50" cy="50" /><circle id="timer-progress-ring" class="text-violet-500" stroke-width="5" stroke="currentColor" fill="transparent" r="45" cx="50" cy="50" stroke-dasharray="282.6" stroke-dashoffset="282.6" transform="rotate(-90 50 50)" style="transition: stroke-dashoffset 1s linear;"/></svg><div class="z-10"><p class="text-6xl font-black text-white">${duration}</p><p class="text-stone-400 font-bold tracking-widest">RECUPERO</p></div></div><div class="flex items-center gap-4 mt-12"><button id="subtract-time-btn" class="bg-stone-800 text-stone-300 font-semibold py-3 px-5 rounded-lg">-15s</button><button id="skip-rest-btn" class="bg-violet-600 text-white font-semibold py-3 px-6 rounded-lg">Salta</button><button id="add-time-btn" class="bg-stone-800 text-stone-300 font-semibold py-3 px-5 rounded-lg">+15s</button></div></div>`;
+            };
+            
+            const renderPlanPage = () => {
+                const planHtml = Object.values(workoutPlan).map(w => `<div class="bg-stone-900 border border-stone-800 rounded-xl shadow-md space-y-3 p-4"> <div class="flex items-center gap-4"> <span class="text-4xl">${w.icon}</span> <div> <h3 class="font-bold text-xl text-white">${w.name}</h3> <p class="text-sm text-stone-400">${w.exercises.length} esercizi</p> </div> </div> <button class="start-workout-btn w-full bg-violet-600 hover:bg-violet-500 text-white font-semibold py-3 px-5 rounded-lg shadow-lg transition-all duration-200 active:scale-95" data-workout-key="${w.key}">Inizia Allenamento</button> </div>`).join('');
+                return `<div class="p-4 space-y-4"><div><h1 class="text-3xl font-bold text-white">Il tuo Piano</h1><p class="text-stone-400">Scegli la sessione da iniziare oggi.</p></div>${planHtml}</div>`;
+            };
+
+            const renderProgressPage = () => {
+                return `<div class="p-4 space-y-6"><div><h1 class="text-3xl font-bold text-white">I tuoi Progressi</h1><p class="text-stone-400">Analizza i tuoi allenamenti passati.</p></div><div><select id="progress-exercise-filter" class="w-full bg-stone-900 border border-stone-800 rounded-lg p-3 shadow-sm"><option value="">-- Seleziona Esercizio --</option>${allExercises.map(ex => `<option value="${ex}">${ex}</option>`).join('')}</select></div><div id="progress-chart-container" class="bg-stone-900 p-2 rounded-xl border border-stone-800 min-h-[300px] shadow-lg"><p class="text-center text-stone-500 p-10">Seleziona un esercizio per visualizzare il grafico dei tuoi progressi.</p></div></div>`;
+            };
+            
+            const renderWorkoutSummary = async () => {
+                if (!activeWorkout) return "<div>Error: No active workout to summarize.</div>";
+                const todayStr = getTodayAsString();
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
+                const q = query(logsRef, where("date", "==", todayStr), where("workoutKey", "==", activeWorkout.key));
+                const snapshot = await getDocs(q);
+                let totalVolume = 0;
+                snapshot.forEach(doc => { totalVolume += doc.data().volume; });
+                const duration = appState.workoutStartTime ? Math.round((Date.now() - appState.workoutStartTime) / 60000) : 0;
+                return `<div class="h-screen flex flex-col items-center justify-center text-center p-4"> <span class="text-6xl mb-4">🎉</span> <h1 class="text-3xl font-black text-white">Allenamento Completato!</h1> <p class="text-stone-400 mt-1">Ottimo lavoro. Ecco il tuo riepilogo:</p> <div class="w-full max-w-md space-y-3 mt-8"> <div class="summary-card p-4 rounded-xl flex justify-between items-center"><p class="font-semibold text-stone-300">Durata</p><p class="font-bold text-2xl text-white">${duration}<span class="text-base text-stone-400 ml-1">min</span></p></div> <div class="summary-card p-4 rounded-xl flex justify-between items-center"><p class="font-semibold text-stone-300">Volume Totale</p><p class="font-bold text-2xl text-white">${Math.round(totalVolume)}<span class="text-base text-stone-400 ml-1">kg</span></p></div> <div class="summary-card p-4 rounded-xl flex justify-between items-center"><p class="font-semibold text-stone-300">Nuovi Record (PRs)</p><p class="font-bold text-2xl text-yellow-400">${sessionPRs.length}</p></div> </div> <button id="close-summary-btn" class="mt-8 w-full max-w-md bg-violet-600 text-white font-semibold py-4 rounded-lg">Chiudi</button> </div>`;
+            };
+            
+            const renderProgressChart = async () => {
+                const container = d3.select("#progress-chart-container");
+                container.html('');
+                const exerciseName = d3.select("#progress-exercise-filter").node().value;
+                if (!exerciseName || !userId) { container.append("p").attr("class", "text-center text-stone-500 p-10").text("Seleziona un esercizio."); return; }
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
+                const q = query(logsRef, where("exerciseName", "==", exerciseName));
+                const snapshot = await getDocs(q);
+                if (snapshot.empty) { container.append("p").attr("class", "text-center text-stone-500 p-10").text("Nessun dato per questo esercizio."); return; }
+                let data = snapshot.docs.map(doc => ({ date: doc.data().timestamp.toDate(), value: doc.data().weight }));
+                data.sort((a, b) => a.date - b.date);
+                const margin = {top: 20, right: 20, bottom: 40, left: 40}, width = container.node().getBoundingClientRect().width - margin.left - margin.right, height = 300 - margin.top - margin.bottom;
+                const svg = container.append("svg").attr("width", width + margin.left + margin.right).attr("height", height + margin.top + margin.bottom).append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+                const x = d3.scaleTime().domain(d3.extent(data, d => d.date)).range([0, width]);
+                svg.append("g").attr("transform", `translate(0, ${height})`).call(d3.axisBottom(x).ticks(5).tickFormat(d3.timeFormat("%d/%m"))).selectAll("text").attr("class", "chart-axis-text");
+                const y = d3.scaleLinear().domain([0, d3.max(data, d => d.value) * 1.1]).range([height, 0]);
+                svg.append("g").call(d3.axisLeft(y).ticks(5)).selectAll("text").attr("class", "chart-axis-text");
+                svg.selectAll(".domain, .tick line").attr("stroke", "#44403c");
+                svg.append("path").datum(data).attr("class", "chart-line").attr("d", d3.line().x(d => x(d.date)).y(d => y(d.value)));
+                const tooltip = d3.select("#tooltip");
+                svg.selectAll("dots").data(data).enter().append("circle").attr("class", "chart-dot").attr("cx", d => x(d.date)).attr("cy", d => y(d.value)).attr("r", 5)
+                    .on("mouseover", (event, d) => tooltip.style("opacity", 1))
+                    .on("mousemove", (event, d) => tooltip.html(`<b>${d.value} kg</b><br>${d.date.toLocaleDateString('it-IT')}`).style("left", (event.pageX + 15) + "px").style("top", (event.pageY - 28) + "px"))
+                    .on("mouseout", () => tooltip.style("opacity", 0));
+            };
+            
+            const attachEventListeners = () => {
+                const page = appState.currentPage;
+                if (page === 'today') {
+                    if (activeWorkout) {
+                        if (appState.currentExerciseIndex === null) {
+                            document.querySelectorAll('.start-exercise-btn').forEach(b => b.addEventListener('click', (e) => {
+                                appState.currentExerciseIndex = parseInt(e.currentTarget.dataset.exIndex);
+                                saveStateToLocalStorage();
+                                renderApp();
+                            }));
+                            document.getElementById('finish-workout')?.addEventListener('click', handleFinishWorkout);
+                        } else {
+                            document.getElementById('back-to-overview')?.addEventListener('click', () => {
+                                appState.currentExerciseIndex = null;
+                                saveStateToLocalStorage();
+                                renderApp();
+                            });
+                            document.querySelectorAll('.stepper-btn').forEach(b => b.addEventListener('click', handleStepper));
+                            document.getElementById('log-set-btn')?.addEventListener('click', handleLogSet);
+                        }
+                    } else {
+                        document.querySelector('.go-to-plan-btn')?.addEventListener('click', () => navigate('plan'));
+                    }
+                } else if (page === 'plan') {
+                    document.querySelectorAll('.start-workout-btn').forEach(b => b.addEventListener('click', handleStartWorkout));
+                } else if (page === 'progress') {
+                    document.getElementById('progress-exercise-filter')?.addEventListener('change', renderProgressChart);
+                } else if (page === 'summary') {
+                    document.getElementById('close-summary-btn')?.addEventListener('click', handleCloseSummary);
+                } else if (page === 'rest') {
+                    const timerContainer = document.querySelector(`[data-duration]`);
+                    if (!timerContainer) return;
+                    let duration = parseInt(timerContainer.dataset.duration);
+                    const synth = new Tone.Synth().toDestination();
+                    let timeLeft = duration;
+                    const progressRing = document.getElementById('timer-progress-ring');
+                    const timeLeftEl = appContent.querySelector('.text-6xl');
+                    
+                    const updateTimerDisplay = () => {
+                        if (timeLeftEl) timeLeftEl.textContent = timeLeft;
+                        const progress = (duration - timeLeft) / duration;
+                        if(progressRing) progressRing.style.strokeDashoffset = 282.6 * (1 - progress);
+                    };
+
+                    const interval = setInterval(() => {
+                        timeLeft--;
+                        updateTimerDisplay();
+                        if (timeLeft <= 0) {
+                            clearInterval(interval);
+                            vibrate(100);
+                            synth.triggerAttackRelease("C5", "0.2");
+                            appState.currentPage = 'today';
+                            appState.currentSetIndex++;
+                            saveStateToLocalStorage();
+                            renderApp();
+                        }
+                    }, 1000);
+
+                    document.getElementById('skip-rest-btn')?.addEventListener('click', () => {
                         clearInterval(interval);
-                        vibrate(100);
-                        synth.triggerAttackRelease("C5", "0.2");
                         appState.currentPage = 'today';
                         appState.currentSetIndex++;
                         saveStateToLocalStorage();
                         renderApp();
-                    }
-                }, 1000);
-
-                document.getElementById('skip-rest-btn')?.addEventListener('click', () => {
-                    clearInterval(interval);
-                    appState.currentPage = 'today';
-                    appState.currentSetIndex++;
-                    saveStateToLocalStorage();
-                    renderApp();
-                });
-                document.getElementById('add-time-btn')?.addEventListener('click', () => { timeLeft += 15; duration += 15; updateTimerDisplay(); });
-                document.getElementById('subtract-time-btn')?.addEventListener('click', () => { timeLeft = Math.max(0, timeLeft - 15); updateTimerDisplay(); });
-            }
-        };
-
-        const renderApp = async () => {
-            appContent.classList.add('page-transition-exit');
-            if (!activeWorkout && appState.currentPage === 'today') {
-                appContent.classList.add('is-empty');
-            } else {
-                appContent.classList.remove('is-empty');
-            }
-            await new Promise(resolve => setTimeout(resolve, 150));
-            let renderer;
-            switch(appState.currentPage) {
-                case 'today': renderer = renderTodayPage; break;
-                case 'progress': renderer = renderProgressPage; break;
-                case 'plan': renderer = renderPlanPage; break;
-                case 'rest': renderer = () => renderRestTimer(appState.restDuration); break;
-                case 'summary': renderer = renderWorkoutSummary; break;
-                default: renderer = renderTodayPage;
-            }
-            appContent.innerHTML = await renderer();
-            attachEventListeners();
-            appContent.classList.remove('page-transition-exit');
-        };
-        
-        const navigate = (page) => {
-            appState.currentPage = page;
-            navButtons.forEach(btn => btn.classList.toggle('bottom-nav-active', btn.dataset.page === page));
-            renderApp();
-        };
-
-        const initAudio = () => {
-            if (Tone.context.state !== 'running') {
-                Tone.start();
-            }
-            document.body.removeEventListener('pointerdown', initAudio);
-        };
-        
-        const setupPWA = () => {
-            const manifest = {
-                "name": "Workout App", "short_name": "Workout", "start_url": ".", "display": "standalone",
-                "background_color": "#0c0a09", "theme_color": "#0c0a09", "description": "La tua app personale per tracciare gli allenamenti.",
-                "icons": [
-                    { "src": "", "sizes": "192x192", "type": "image/png" },
-                    { "src": "", "sizes": "512x512", "type": "image/png" }
-                ]
+                    });
+                    document.getElementById('add-time-btn')?.addEventListener('click', () => { timeLeft += 15; duration += 15; updateTimerDisplay(); });
+                    document.getElementById('subtract-time-btn')?.addEventListener('click', () => { timeLeft = Math.max(0, timeLeft - 15); updateTimerDisplay(); });
+                }
             };
-            const createIconDataUrl = (size) => {
-                const svgIcon = `<svg width="${size}" height="${size}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="20" fill="#8b5cf6"/><path d="M30 50 h40 M20 50 h-10 v-15 h10 M80 50 h10 v-15 h-10 M20 50 h-10 v15 h10 M80 50 h10 v15 h-10" stroke="#FFFFFF" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-                return `data:image/svg+xml;base64,${btoa(svgIcon)}`;
+
+            const renderApp = async () => {
+                appContent.classList.add('page-transition-exit');
+                if (!activeWorkout && appState.currentPage === 'today') {
+                    appContent.classList.add('is-empty');
+                } else {
+                    appContent.classList.remove('is-empty');
+                }
+                await new Promise(resolve => setTimeout(resolve, 150));
+                let renderer;
+                switch(appState.currentPage) {
+                    case 'today': renderer = renderTodayPage; break;
+                    case 'progress': renderer = renderProgressPage; break;
+                    case 'plan': renderer = renderPlanPage; break;
+                    case 'rest': renderer = () => renderRestTimer(appState.restDuration); break;
+                    case 'summary': renderer = renderWorkoutSummary; break;
+                    default: renderer = renderTodayPage;
+                }
+                appContent.innerHTML = await renderer();
+                attachEventListeners();
+                appContent.classList.remove('page-transition-exit');
             };
-            manifest.icons[0].src = createIconDataUrl(192);
-            manifest.icons[1].src = createIconDataUrl(512);
-            document.getElementById('favicon-link').setAttribute('href', createIconDataUrl(32));
-            const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
-            const manifestUrl = URL.createObjectURL(manifestBlob);
-            document.getElementById('manifest-link').setAttribute('href', manifestUrl);
-            document.getElementById('apple-touch-icon-link').setAttribute('href', createIconDataUrl(180));
-        };
+            
+            const navigate = (page) => {
+                appState.currentPage = page;
+                navButtons.forEach(btn => btn.classList.toggle('bottom-nav-active', btn.dataset.page === page));
+                renderApp();
+            };
 
-        // --- INIZIALIZZAZIONE ---
-        document.addEventListener('DOMContentLoaded', () => {
-            const firebaseConfigCheck = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-            if (!firebaseConfigCheck.apiKey || firebaseConfigCheck.apiKey.includes("YOUR_API_KEY")) {
-                appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Configurazione</h1><p class="text-stone-400 mt-2">L'app non può connettersi al database.</p></div>`;
-                return;
-            }
+            const initAudio = () => {
+                if (Tone.context.state !== 'running') {
+                    Tone.start();
+                }
+                document.body.removeEventListener('pointerdown', initAudio);
+            };
+            
+            const setupPWA = () => {
+                const manifest = {
+                    "name": "Workout App", "short_name": "Workout", "start_url": ".", "display": "standalone",
+                    "background_color": "#0c0a09", "theme_color": "#0c0a09", "description": "La tua app personale per tracciare gli allenamenti.",
+                    "icons": [
+                        { "src": "", "sizes": "192x192", "type": "image/png" },
+                        { "src": "", "sizes": "512x512", "type": "image/png" }
+                    ]
+                };
+                const createIconDataUrl = (size) => {
+                    const svgIcon = `<svg width="${size}" height="${size}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="20" fill="#8b5cf6"/><path d="M30 50 h40 M20 50 h-10 v-15 h10 M80 50 h10 v-15 h-10 M20 50 h-10 v15 h10 M80 50 h10 v15 h-10" stroke="#FFFFFF" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                    return `data:image/svg+xml;base64,${btoa(svgIcon)}`;
+                };
+                manifest.icons[0].src = createIconDataUrl(192);
+                manifest.icons[1].src = createIconDataUrl(512);
+                document.getElementById('favicon-link').setAttribute('href', createIconDataUrl(32));
+                const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+                const manifestUrl = URL.createObjectURL(manifestBlob);
+                document.getElementById('manifest-link').setAttribute('href', manifestUrl);
+                document.getElementById('apple-touch-icon-link').setAttribute('href', createIconDataUrl(180));
+            };
 
-            try {
-                const app = initializeApp(firebaseConfigCheck);
-                auth = getAuth(app);
-                db = getFirestore(app);
+            // --- INIZIALIZZAZIONE ---
+            document.addEventListener('DOMContentLoaded', () => {
+                const firebaseConfigCheck = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+                if (!firebaseConfigCheck.apiKey || firebaseConfigCheck.apiKey.includes("YOUR_API_KEY")) {
+                    appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Configurazione</h1><p class="text-stone-400 mt-2">L'app non può connettersi al database.</p></div>`;
+                    return;
+                }
 
-                navButtons.forEach(button => button.addEventListener('click', () => navigate(button.dataset.page)));
+                try {
+                    const app = initializeApp(firebaseConfigCheck);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
 
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                    } else {
-                        try {
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                const userCredential = await signInWithCustomToken(auth, __initial_auth_token);
-                                userId = userCredential.user.uid;
-                            } else {
-                                const userCredential = await signInAnonymously(auth);
-                                userId = userCredential.user.uid;
+                    navButtons.forEach(button => button.addEventListener('click', () => navigate(button.dataset.page)));
+
+                    onAuthStateChanged(auth, async (user) => {
+                        if (user) {
+                            userId = user.uid;
+                        } else {
+                            try {
+                                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                    const userCredential = await signInWithCustomToken(auth, __initial_auth_token);
+                                    userId = userCredential.user.uid;
+                                } else {
+                                    const userCredential = await signInAnonymously(auth);
+                                    userId = userCredential.user.uid;
+                                }
+                            } catch (error) {
+                                console.error("Authentication failed:", error);
+                                appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Autenticazione</h1><p class="text-stone-400 mt-2">Impossibile connettersi. Controlla la configurazione della tua API key.</p></div>`;
+                                return;
                             }
-                        } catch (error) {
-                            console.error("Authentication failed:", error);
-                            appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Autenticazione</h1><p class="text-stone-400 mt-2">Impossibile connettersi. Controlla la configurazione della tua API key.</p></div>`;
-                            return;
                         }
-                    }
-                    if (userId) {
-                        document.body.addEventListener('pointerdown', initAudio, { once: true });
-                        setupPWA();
-                        loadStateFromLocalStorage();
-                        renderApp();
-                    }
-                });
-            } catch (e) {
-                console.error("Firebase initialization failed:", e);
-                appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Inizializzazione</h1><p class="text-stone-400 mt-2">Impossibile avviare l'applicazione.</p></div>`;
-            }
-        });
-    </script>
-</body>
-</html>
+                        if (userId) {
+                            document.body.addEventListener('pointerdown', initAudio, { once: true });
+                            setupPWA();
+                            loadStateFromLocalStorage();
+                            renderApp();
+                        }
+                    });
+                } catch (e) {
+                    console.error("Firebase initialization failed:", e);
+                    appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Inizializzazione</h1><p class="text-stone-400 mt-2">Impossibile avviare l'applicazione.</p></div>`;
+                }
+            });
+        </script>
+    </body>
+    </html>
