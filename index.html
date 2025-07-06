@@ -100,6 +100,7 @@
         const navButtons = document.querySelectorAll('.nav-button');
         let appState = { currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1, workoutStartTime: null, restDuration: 0 };
         let db, auth;
+        let isDemoMode = false;
 
         const saveStateToLocalStorage = () => localStorage.setItem('appState', JSON.stringify({ ...appState, activeWorkout }));
         const loadStateFromLocalStorage = () => {
@@ -129,15 +130,27 @@
         
         const checkAndSavePR = async (logData) => {
             if (logData.reps <= 0 || logData.weight <= 0) return;
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const prRef = doc(db, `artifacts/${appId}/users/${userId}/personal_records`, logData.exerciseName);
-            const prDoc = await getDoc(prRef);
-            let prs = prDoc.exists() ? prDoc.data() : {};
-            const prKey = `${logData.reps}reps`;
-            if (!prs[prKey] || logData.weight > prs[prKey]) {
-                prs[prKey] = logData.weight;
-                await setDoc(prRef, prs, { merge: true });
-                sessionPRs.push({ exercise: logData.exerciseName, pr: `${logData.weight}kg x ${logData.reps}` });
+            if (isDemoMode) {
+                let prs = JSON.parse(localStorage.getItem('personal_records')) || {};
+                const exercisePRs = prs[logData.exerciseName] || {};
+                const prKey = `${logData.reps}reps`;
+                if (!exercisePRs[prKey] || logData.weight > exercisePRs[prKey]) {
+                    exercisePRs[prKey] = logData.weight;
+                    prs[logData.exerciseName] = exercisePRs;
+                    localStorage.setItem('personal_records', JSON.stringify(prs));
+                    sessionPRs.push({ exercise: logData.exerciseName, pr: `${logData.weight}kg x ${logData.reps}` });
+                }
+            } else {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const prRef = doc(db, `artifacts/${appId}/users/${userId}/personal_records`, logData.exerciseName);
+                const prDoc = await getDoc(prRef);
+                let prs = prDoc.exists() ? prDoc.data() : {};
+                const prKey = `${logData.reps}reps`;
+                if (!prs[prKey] || logData.weight > prs[prKey]) {
+                    prs[prKey] = logData.weight;
+                    await setDoc(prRef, prs, { merge: true });
+                    sessionPRs.push({ exercise: logData.exerciseName, pr: `${logData.weight}kg x ${logData.reps}` });
+                }
             }
         };
 
@@ -147,42 +160,58 @@
             const weight = parseFloat(document.getElementById('weight-value').textContent);
             const reps = parseInt(document.getElementById('reps-value').textContent);
             if (reps <= 0) { alert("Le ripetizioni devono essere maggiori di zero."); return; }
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const logData = { userId, date: getTodayAsString(), workoutKey: activeWorkout.key, workoutName: activeWorkout.name, exerciseName: ex.name, setIndex: appState.currentSetIndex, weight, reps, volume: weight * reps, timestamp: Timestamp.now() };
-            try {
+            const logData = { userId, date: getTodayAsString(), workoutKey: activeWorkout.key, workoutName: activeWorkout.name, exerciseName: ex.name, setIndex: appState.currentSetIndex, weight, reps, volume: weight * reps, timestamp: Date.now() };
+            
+            if (isDemoMode) {
+                let logs = JSON.parse(localStorage.getItem('workout_logs')) || [];
+                logs.push(logData);
+                localStorage.setItem('workout_logs', JSON.stringify(logs));
+            } else {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                logData.timestamp = Timestamp.fromMillis(logData.timestamp);
                 await addDoc(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), logData);
-                await checkAndSavePR(logData);
-                lastUsedData.set(ex.name, { weight, reps });
-                logsCache.delete(getTodayAsString());
-                
-                if (appState.currentSetIndex >= ex.sets) {
-                    appState.currentExerciseIndex++;
-                    if (appState.currentExerciseIndex >= activeWorkout.exercises.length) {
-                        handleFinishWorkout();
-                    } else {
-                        appState.currentSetIndex = 1;
-                        appState.currentPage = 'today';
-                        saveStateToLocalStorage();
-                        renderApp();
-                    }
+            }
+
+            await checkAndSavePR(logData);
+            lastUsedData.set(ex.name, { weight, reps });
+            logsCache.delete(getTodayAsString());
+            
+            if (appState.currentSetIndex >= ex.sets) {
+                appState.currentExerciseIndex++;
+                if (appState.currentExerciseIndex >= activeWorkout.exercises.length) {
+                    handleFinishWorkout();
                 } else {
-                    appState.currentPage = 'rest';
-                    appState.restDuration = ex.rest;
+                    appState.currentSetIndex = 1;
+                    appState.currentPage = 'today';
                     saveStateToLocalStorage();
                     renderApp();
                 }
-            } catch (error) { console.error("Errore salvataggio:", error); }
+            } else {
+                appState.currentPage = 'rest';
+                appState.restDuration = ex.rest;
+                saveStateToLocalStorage();
+                renderApp();
+            }
         };
 
         const fetchLastUsedDataForExercise = async (exerciseName) => {
             if (lastUsedData.has(exerciseName)) return lastUsedData.get(exerciseName);
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const q = query(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), where("exerciseName", "==", exerciseName));
-            const snapshot = await getDocs(q);
-            if (!snapshot.empty) {
-                const docs = snapshot.docs.map(doc => doc.data());
-                docs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
-                const lastLog = docs[0];
+            
+            let logs = [];
+            if (isDemoMode) {
+                logs = (JSON.parse(localStorage.getItem('workout_logs')) || []).filter(log => log.exerciseName === exerciseName);
+            } else {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const q = query(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), where("exerciseName", "==", exerciseName));
+                const snapshot = await getDocs(q);
+                if (!snapshot.empty) {
+                    logs = snapshot.docs.map(doc => doc.data());
+                }
+            }
+            
+            if (logs.length > 0) {
+                logs.sort((a, b) => b.timestamp - a.timestamp);
+                const lastLog = logs[0];
                 const data = { weight: lastLog.weight, reps: lastLog.reps };
                 lastUsedData.set(exerciseName, data);
                 return data;
@@ -219,12 +248,18 @@
             if (activeWorkout) {
                  const todayStr = getTodayAsString();
                 if (!logsCache.has(todayStr)) {
-                    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                    const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
-                    const q = query(logsRef, where("date", "==", todayStr), where("workoutKey", "==", activeWorkout.key));
-                    const snapshot = await getDocs(q);
-                    const logs = {};
-                    snapshot.forEach(doc => { const data = doc.data(); if (!logs[data.exerciseName]) logs[data.exerciseName] = []; logs[data.exerciseName][data.setIndex - 1] = true; });
+                    let logs = {};
+                    if(isDemoMode) {
+                        const storedLogs = (JSON.parse(localStorage.getItem('workout_logs')) || [])
+                            .filter(log => log.date === todayStr && log.workoutKey === activeWorkout.key);
+                        storedLogs.forEach(data => { if (!logs[data.exerciseName]) logs[data.exerciseName] = []; logs[data.exerciseName][data.setIndex - 1] = true; });
+                    } else {
+                        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                        const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
+                        const q = query(logsRef, where("date", "==", todayStr), where("workoutKey", "==", activeWorkout.key));
+                        const snapshot = await getDocs(q);
+                        snapshot.forEach(doc => { const data = doc.data(); if (!logs[data.exerciseName]) logs[data.exerciseName] = []; logs[data.exerciseName][data.setIndex - 1] = true; });
+                    }
                     logsCache.set(todayStr, logs);
                 }
                 const todayLogs = logsCache.get(todayStr) || {};
@@ -257,12 +292,18 @@
         const renderWorkoutSummary = async () => {
             if (!activeWorkout) return "<div>Error: No active workout to summarize.</div>";
             const todayStr = getTodayAsString();
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
-            const q = query(logsRef, where("date", "==", todayStr), where("workoutKey", "==", activeWorkout.key));
-            const snapshot = await getDocs(q);
             let totalVolume = 0;
-            snapshot.forEach(doc => { totalVolume += doc.data().volume; });
+            if (isDemoMode) {
+                const logs = (JSON.parse(localStorage.getItem('workout_logs')) || [])
+                    .filter(log => log.date === todayStr && log.workoutKey === activeWorkout.key);
+                logs.forEach(log => { totalVolume += log.volume; });
+            } else {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
+                const q = query(logsRef, where("date", "==", todayStr), where("workoutKey", "==", activeWorkout.key));
+                const snapshot = await getDocs(q);
+                snapshot.forEach(doc => { totalVolume += doc.data().volume; });
+            }
             const duration = appState.workoutStartTime ? Math.round((Date.now() - appState.workoutStartTime) / 60000) : 0;
             return `<div class="h-screen flex flex-col items-center justify-center text-center p-4"> <span class="text-6xl mb-4">🎉</span> <h1 class="text-3xl font-black text-white">Allenamento Completato!</h1> <p class="text-stone-400 mt-1">Ottimo lavoro. Ecco il tuo riepilogo:</p> <div class="w-full max-w-md space-y-3 mt-8"> <div class="summary-card p-4 rounded-xl flex justify-between items-center"><p class="font-semibold text-stone-300">Durata</p><p class="font-bold text-2xl text-white">${duration}<span class="text-base text-stone-400 ml-1">min</span></p></div> <div class="summary-card p-4 rounded-xl flex justify-between items-center"><p class="font-semibold text-stone-300">Volume Totale</p><p class="font-bold text-2xl text-white">${Math.round(totalVolume)}<span class="text-base text-stone-400 ml-1">kg</span></p></div> <div class="summary-card p-4 rounded-xl flex justify-between items-center"><p class="font-semibold text-stone-300">Nuovi Record (PRs)</p><p class="font-bold text-2xl text-yellow-400">${sessionPRs.length}</p></div> </div> <button id="close-summary-btn" class="mt-8 w-full max-w-md bg-violet-600 text-white font-semibold py-4 rounded-lg">Chiudi</button> </div>`;
         };
@@ -271,13 +312,23 @@
             const container = d3.select("#progress-chart-container");
             container.html('');
             const exerciseName = d3.select("#progress-exercise-filter").node().value;
-            if (!exerciseName || !userId) { container.append("p").attr("class", "text-center text-stone-500 p-10").text("Seleziona un esercizio."); return; }
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
-            const q = query(logsRef, where("exerciseName", "==", exerciseName));
-            const snapshot = await getDocs(q);
-            if (snapshot.empty) { container.append("p").attr("class", "text-center text-stone-500 p-10").text("Nessun dato per questo esercizio."); return; }
-            let data = snapshot.docs.map(doc => ({ date: doc.data().timestamp.toDate(), value: doc.data().weight }));
+            if (!exerciseName) { container.append("p").attr("class", "text-center text-stone-500 p-10").text("Seleziona un esercizio."); return; }
+            
+            let data = [];
+            if (isDemoMode) {
+                const logs = (JSON.parse(localStorage.getItem('workout_logs')) || []).filter(log => log.exerciseName === exerciseName);
+                data = logs.map(log => ({ date: new Date(log.timestamp), value: log.weight }));
+            } else {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
+                const q = query(logsRef, where("exerciseName", "==", exerciseName));
+                const snapshot = await getDocs(q);
+                if (snapshot.empty) { container.append("p").attr("class", "text-center text-stone-500 p-10").text("Nessun dato per questo esercizio."); return; }
+                data = snapshot.docs.map(doc => ({ date: doc.data().timestamp.toDate(), value: doc.data().weight }));
+            }
+
+            if (data.length === 0) { container.append("p").attr("class", "text-center text-stone-500 p-10").text("Nessun dato per questo esercizio."); return; }
+            
             data.sort((a, b) => a.date - b.date);
             const margin = {top: 20, right: 20, bottom: 40, left: 40}, width = container.node().getBoundingClientRect().width - margin.left - margin.right, height = 300 - margin.top - margin.bottom;
             const svg = container.append("svg").attr("width", width + margin.left + margin.right).attr("height", height + margin.top + margin.bottom).append("g").attr("transform", `translate(${margin.left},${margin.top})`);
@@ -425,47 +476,50 @@
         document.addEventListener('DOMContentLoaded', () => {
             const firebaseConfigCheck = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
             if (!firebaseConfigCheck.apiKey || firebaseConfigCheck.apiKey.includes("YOUR_API_KEY")) {
-                appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Configurazione</h1><p class="text-stone-400 mt-2">L'app non può connettersi al database.</p></div>`;
-                return;
-            }
-
-            try {
-                const app = initializeApp(firebaseConfigCheck);
-                auth = getAuth(app);
-                db = getFirestore(app);
-
-                navButtons.forEach(button => button.addEventListener('click', () => navigate(button.dataset.page)));
-
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                    } else {
-                        try {
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                const userCredential = await signInWithCustomToken(auth, __initial_auth_token);
-                                userId = userCredential.user.uid;
-                            } else {
-                                const userCredential = await signInAnonymously(auth);
-                                userId = userCredential.user.uid;
+                console.warn("Firebase config not found or invalid. Running in Demo Mode (using localStorage).");
+                isDemoMode = true;
+                initializeAppLogic();
+            } else {
+                try {
+                    const app = initializeApp(firebaseConfigCheck);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
+                    onAuthStateChanged(auth, async (user) => {
+                        if (user) {
+                            userId = user.uid;
+                        } else {
+                            try {
+                                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                    const userCredential = await signInWithCustomToken(auth, __initial_auth_token);
+                                    userId = userCredential.user.uid;
+                                } else {
+                                    const userCredential = await signInAnonymously(auth);
+                                    userId = userCredential.user.uid;
+                                }
+                            } catch (error) {
+                                console.error("Authentication failed:", error);
+                                appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Autenticazione</h1><p class="text-stone-400 mt-2">Impossibile connettersi. Controlla la configurazione della tua API key.</p></div>`;
+                                return;
                             }
-                        } catch (error) {
-                            console.error("Authentication failed:", error);
-                            appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Autenticazione</h1><p class="text-stone-400 mt-2">Impossibile connettersi. Controlla la configurazione della tua API key.</p></div>`;
-                            return;
                         }
-                    }
-                    if (userId) {
-                        document.body.addEventListener('pointerdown', initAudio, { once: true });
-                        setupPWA();
-                        loadStateFromLocalStorage();
-                        renderApp();
-                    }
-                });
-            } catch (e) {
-                console.error("Firebase initialization failed:", e);
-                appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Inizializzazione</h1><p class="text-stone-400 mt-2">Impossibile avviare l'applicazione.</p></div>`;
+                        if (userId) {
+                           initializeAppLogic();
+                        }
+                    });
+                } catch (e) {
+                    console.error("Firebase initialization failed:", e);
+                    appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Inizializzazione</h1><p class="text-stone-400 mt-2">Impossibile avviare l'applicazione.</p></div>`;
+                }
             }
         });
+
+        function initializeAppLogic() {
+            navButtons.forEach(button => button.addEventListener('click', () => navigate(button.dataset.page)));
+            document.body.addEventListener('pointerdown', initAudio, { once: true });
+            setupPWA();
+            loadStateFromLocalStorage();
+            renderApp();
+        }
     </script>
 </body>
 </html>
