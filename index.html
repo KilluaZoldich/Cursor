@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Workout App</title>
     
-    <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#0c0a09">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -24,15 +23,17 @@
         }
         body {
             font-family: 'Inter', sans-serif; background-color: #0c0a09; color: #e7e5e4;
-            /* Add padding for iPhone top notch/island */
             padding-top: env(safe-area-inset-top);
         }
         #app-content {
-            /* Ensure content area is at least the screen height */
             min-height: 100vh;
         }
+        #app-content.is-empty {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
         nav {
-            /* Add padding for iPhone home indicator */
             padding-bottom: env(safe-area-inset-bottom);
             height: calc(4rem + env(safe-area-inset-bottom)); /* h-16 is 4rem */
         }
@@ -181,17 +182,19 @@
             } catch (error) { console.error("Errore salvataggio:", error); }
         };
 
-        const fetchLastUsedData = async (workout) => {
-            for (const ex of workout.exercises) {
-                const q = query(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), where("exerciseName", "==", ex.name));
-                const snapshot = await getDocs(q);
-                if (!snapshot.empty) {
-                    const docs = snapshot.docs.map(doc => doc.data());
-                    docs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
-                    const lastLog = docs[0];
-                    lastUsedData.set(ex.name, { weight: lastLog.weight, reps: lastLog.reps });
-                }
+        const fetchLastUsedDataForExercise = async (exerciseName) => {
+            if (lastUsedData.has(exerciseName)) return lastUsedData.get(exerciseName);
+            
+            const q = query(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), where("exerciseName", "==", exerciseName));
+            const snapshot = await getDocs(q);
+            if (!snapshot.empty) {
+                const docs = snapshot.docs.map(doc => doc.data());
+                docs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
+                const lastLog = docs[0];
+                lastUsedData.set(exerciseName, { weight: lastLog.weight, reps: lastLog.reps });
+                return { weight: lastLog.weight, reps: lastLog.reps };
             }
+            return null;
         };
 
         const handleStartWorkout = async (e) => {
@@ -199,7 +202,306 @@
             activeWorkout = workoutPlan[key];
             appState = { ...appState, currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1, workoutStartTime: Date.now() };
             sessionPRs = [];
-            await fetchLastUsedData(activeWorkout);
+            // FIX: Don't fetch all data upfront. It will be fetched Just-In-Time.
+            lastUsedData.clear();
+            saveStateToLocalStorage();
+            renderApp();
+        };
+
+        const handleFinishWorkout = () => {
+            appState.currentPage = 'summary';
+            renderApp();
+        };
+
+        const handleCloseSummary = () => {
+            activeWorkout = null;
+            appState = { ...appState, currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1 };
+            localStorage.removeItem('appState');
+            renderApp();
+        };
+        
+        const renderTodayPage = async () => {
+            if (activeWorkout) {
+                 if (appState.currentExerciseIndex !== null) {
+                    return await renderExerciseFocusMode();
+                }
+                const todayStr = getTodayAsString();
+                if (!logsCache.has(todayStr)) {
+                    const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
+                    const q = query(logsRef, where("date", "==", todayStr), where("workoutKey", "==", activeWorkout.key));
+                    const snapshot = await getDocs(q);
+                    const logs = {};
+                    snapshot.forEach(doc => { const data = doc.data(); if (!logs[data.exerciseName]) logs[data.exerciseName] = []; logs[data.exerciseName][data.setIndex - 1] = true; });
+                    logsCache.set(todayStr, logs);
+                }
+                const todayLogs = logsCache.get(todayStr) || {};
+                return `<div class="p-4 space-y-4"> <div class="flex justify-between items-start"> <div><p class="font-bold text-violet-400">Sessione Attiva</p><h1 class="text-3xl font-bold text-white mt-1">${activeWorkout.name}</h1></div> <button id="finish-workout" class="bg-stone-800 text-sm font-semibold text-stone-300 py-2 px-4 rounded-lg">Termina Sessione</button> </div> <div class="space-y-3"> ${activeWorkout.exercises.map((ex, index) => { const isCompleted = todayLogs[ex.name]?.filter(Boolean).length >= ex.sets; return `<button data-ex-index="${index}" class="start-exercise-btn w-full text-left p-4 rounded-xl shadow-lg flex items-center justify-between transition-transform duration-200 active:scale-95 ${isCompleted ? 'bg-green-900/50 border border-green-700' : 'bg-stone-900 border border-stone-800'}"><div><h3 class="font-bold text-lg ${isCompleted ? 'text-green-300' : 'text-white'}">${ex.name}</h3><p class="text-sm ${isCompleted ? 'text-green-400/80' : 'text-stone-400'}">${ex.sets} x ${ex.reps} reps</p></div> ${isCompleted ? '<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>'}</button>` }).join('')} </div> </div>`;
+            }
+            // FIX: Return a div that will be centered by the new .is-empty class on the parent
+            return `<div class="p-4 text-center"><svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-violet-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg><h1 class="text-2xl font-bold text-white mt-4">Nessun Allenamento Attivo</h1><p class="text-stone-400 mt-2 max-w-xs">Vai alla sezione "Piano" per scegliere e iniziare la tua sessione di oggi.</p><button class="go-to-plan-btn mt-6 bg-violet-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg">Scegli Allenamento</button></div>`;
+        };
+
+        const renderExerciseFocusMode = async () => {
+            const ex = activeWorkout.exercises[appState.currentExerciseIndex];
+            const lastData = lastUsedData.get(ex.name) || await fetchLastUsedDataForExercise(ex.name) || { weight: 0, reps: 0 };
+            lastUsedData.set(ex.name, lastData);
+            const progressDots = Array.from({length: ex.sets}, (_, i) => `<div class="h-2 w-2 rounded-full ${i < appState.currentSetIndex - 1 ? 'bg-violet-500' : 'bg-stone-700'}"></div>`).join('');
+            return `<div class="h-screen flex flex-col p-4 bg-stone-950"> <div class="flex items-center"><button id="back-to-overview" class="p-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg></button><div class="text-center flex-1"><h2 class="font-bold text-xl text-white">${ex.name}</h2><p class="text-stone-400 text-sm">${ex.sets} x ${ex.reps} reps</p></div><div class="w-8"></div></div> <div class="flex-1 flex flex-col items-center justify-center"><p class="font-bold text-stone-400">SERIE ${appState.currentSetIndex}</p><div class="flex items-center gap-4 my-8"><div class="text-center"><label class="text-sm font-bold text-stone-300">PESO (KG)</label><div class="flex items-center gap-2 mt-2"><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="weight-minus">-</button><span id="weight-value" class="text-6xl font-black text-white w-32 text-center">${lastData.weight}</span><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="weight-plus">+</button></div></div></div><div class="flex items-center gap-4"><div class="text-center"><label class="text-sm font-bold text-stone-300">REPS</label><div class="flex items-center gap-2 mt-2"><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="reps-minus">-</button><span id="reps-value" class="text-6xl font-black text-white w-32 text-center">${lastData.reps}</span><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="reps-plus">+</button></div></div></div></div> <div class="flex items-center justify-center gap-2 mb-4">${progressDots}</div><button id="log-set-btn" class="w-full bg-gradient-to-r from-violet-600 to-violet-800 text-white font-bold text-lg py-5 rounded-2xl shadow-lg active:scale-95 transition-transform duration-200">REGISTRA SERIE</button> </div>`;
+        };
+        
+        const renderRestTimer = (duration) => { /* ... existing code ... */ };
+        const renderPlanPage = () => { /* ... existing code ... */ };
+        const renderProgressPage = () => { /* ... existing code ... */ };
+        const renderWorkoutSummary = async () => { /* ... existing code ... */ };
+        const renderProgressChart = async () => { /* ... existing code ... */ };
+        
+        // --- ROUTER & EVENT LISTENERS ---
+        const attachEventListeners = () => { /* ... existing code ... */ };
+
+        const renderApp = async () => {
+            appContent.classList.add('page-transition-exit');
+            // FIX: Add/remove helper class for centering the empty state
+            if (!activeWorkout && appState.currentPage === 'today') {
+                appContent.classList.add('is-empty');
+            } else {
+                appContent.classList.remove('is-empty');
+            }
+            await new Promise(resolve => setTimeout(resolve, 150));
+            let renderer;
+            switch(appState.currentPage) {
+                case 'today': renderer = renderTodayPage; break;
+                case 'progress': renderer = renderProgressPage; break;
+                case 'plan': renderer = renderPlanPage; break;
+                case 'rest': renderer = () => renderRestTimer(appState.restDuration); break;
+                case 'summary': renderer = renderWorkoutSummary; break;
+                default: renderer = renderTodayPage;
+            }
+            appContent.innerHTML = await renderer();
+            attachEventListeners();
+            appContent.classList.remove('page-transition-exit');
+        };
+        
+        const navigate = (page) => { /* ... existing code ... */ };
+        
+        // --- INIZIALIZZAZIONE ---
+        /* ... existing code ... */
+
+    </script>
+</body>
+</html>
+```
+I'll replace the full script with a clean, well-ordered version that includes all the fixes. It's better to provide the whole correct script than patching parts, which can lead to confusion. I will consolidate all function definitions before the main initialization logic.Certamente, ho corretto il codice per risolvere tutti i problemi che hai segnalato.
+
+
+```html
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Workout App</title>
+    
+    <meta name="theme-color" content="#0c0a09">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link id="manifest-link" rel="manifest">
+    <link id="apple-touch-icon-link" rel="apple-touch-icon">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        html, body {
+            overscroll-behavior-y: contain; -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            font-family: 'Inter', sans-serif; background-color: #0c0a09; color: #e7e5e4;
+            padding-top: env(safe-area-inset-top);
+        }
+        #app-content {
+            min-height: calc(100vh - (4rem + env(safe-area-inset-bottom)));
+            padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+        }
+        #app-content.is-empty {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+        nav {
+            padding-bottom: env(safe-area-inset-bottom);
+            height: calc(4rem + env(safe-area-inset-bottom)); /* h-16 is 4rem */
+        }
+        .bottom-nav-active svg { color: #8b5cf6; } /* violet-500 */
+        .bottom-nav-active span { color: #e7e5e4; }
+        .app-content { transition: opacity 0.2s ease-in-out; }
+        .stepper-btn {
+            background-color: #292524; /* stone-800 */
+            transition: background-color 0.15s ease;
+        }
+        .stepper-btn:active {
+            background-color: #44403c; /* stone-700 */
+        }
+        .page-transition-exit { opacity: 0; transform: scale(0.95); }
+        .page-transition-enter { opacity: 1; transform: scale(1); }
+        .summary-card {
+            background: linear-gradient(145deg, #1c1917, #292524);
+            border: 1px solid #44403c;
+        }
+    </style>
+</head>
+<body class="text-gray-300">
+
+    <main id="app-content" class="app-content"></main>
+
+    <nav class="fixed bottom-0 left-0 right-0 bg-stone-900/80 backdrop-blur-sm border-t border-stone-800 flex justify-around z-50">
+        <button data-page="today" class="nav-button flex flex-col items-center justify-center text-stone-500 w-full transition-colors duration-200 bottom-nav-active pt-2 pb-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+            <span class="text-xs font-medium mt-1">Oggi</span>
+        </button>
+        <button data-page="progress" class="nav-button flex flex-col items-center justify-center text-stone-500 w-full transition-colors duration-200 pt-2 pb-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+            <span class="text-xs font-medium mt-1">Progressi</span>
+        </button>
+        <button data-page="plan" class="nav-button flex flex-col items-center justify-center text-stone-500 w-full transition-colors duration-200 pt-2 pb-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+            <span class="text-xs font-medium mt-1">Piano</span>
+        </button>
+    </nav>
+    
+    <div id="tooltip" style="position: absolute; text-align: center; padding: 8px; font-size: 12px; background: #1c1917; color: #e7e5e4; border: 1px solid #44403c; border-radius: 8px; pointer-events: none; opacity: 0; transition: opacity 0.2s;"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, query, where, Timestamp, getDocs, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const workoutPlan = {
+            1: { key: 1, name: "Upper Body - Forza", icon: `🏋️‍♂️`, exercises: [ { name: "Panca Piana", sets: 4, reps: "6-8", rest: 120 }, { name: "Rematore", sets: 4, reps: "6-8", rest: 120 }, { name: "Lento Avanti", sets: 3, reps: "8-10", rest: 90 }, { name: "Trazioni", sets: 3, reps: "Max", rest: 90 }, { name: "Dip", sets: 3, reps: "8-12", rest: 60 }, { name: "Curl EZ", sets: 3, reps: "8-12", rest: 60 } ]},
+            2: { key: 2, name: "Lower Body - Forza", icon: `🦵`, exercises: [ { name: "Squat", sets: 4, reps: "6-8", rest: 120 }, { name: "Stacchi Rumeni", sets: 4, reps: "8-10", rest: 120 }, { name: "Leg Press", sets: 3, reps: "10-12", rest: 90 }, { name: "Affondi", sets: 3, reps: "10/gamba", rest: 90 }, { name: "Calf Raise", sets: 4, reps: "12-15", rest: 60 }, { name: "Plank", sets: 3, reps: "Max", rest: 60 } ]},
+            4: { key: 4, name: "Upper Body - Ipertrofia", icon: `💪`, exercises: [ { name: "Panca Inclinata", sets: 4, reps: "10-12", rest: 90 }, { name: "Pulley", sets: 4, reps: "10-12", rest: 90 }, { name: "Spinte Manubri", sets: 3, reps: "12-15", rest: 75 }, { name: "Alzate Laterali", sets: 3, reps: "12-15", rest: 60 }, { name: "French Press", sets: 3, reps: "12-15", rest: 60 }, { name: "Curl a Martello", sets: 3, reps: "12-15", rest: 60 } ]},
+            5: { key: 5, name: "Lower Body - Ipertrofia", icon: `🔥`, exercises: [ { name: "Front Squat", sets: 4, reps: "10-12", rest: 90 }, { name: "Leg Curl", sets: 4, reps: "12-15", rest: 75 }, { name: "Leg Extension", sets: 3, reps: "15-20", rest: 60 }, { name: "Hip Thrust", sets: 4, reps: "10-12", rest: 90 }, { name: "Calf Seduto", sets: 4, reps: "15-20", rest: 60 }, { name: "Crunch ai Cavi", sets: 3, reps: "15-20", rest: 60 } ]},
+        };
+        const allExercises = [...new Set(Object.values(workoutPlan).flatMap(day => day.exercises.map(ex => ex.name)))].sort();
+        
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : { 
+                apiKey: "YOUR_API_KEY", 
+                authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+                projectId: "YOUR_PROJECT_ID",
+                storageBucket: "YOUR_PROJECT_ID.appspot.com",
+                messagingSenderId: "YOUR_SENDER_ID",
+                appId: "YOUR_APP_ID"
+              };
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        let userId = null; let activeWorkout = null;
+        let logsCache = new Map(); let lastUsedData = new Map();
+        let sessionPRs = [];
+
+        const appContent = document.getElementById('app-content');
+        const navButtons = document.querySelectorAll('.nav-button');
+        let appState = { currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1, workoutStartTime: null, restDuration: 0 };
+
+        const saveStateToLocalStorage = () => localStorage.setItem('appState', JSON.stringify({ ...appState, activeWorkout }));
+        const loadStateFromLocalStorage = () => {
+            const saved = localStorage.getItem('appState');
+            if (saved) {
+                const loadedState = JSON.parse(saved);
+                activeWorkout = loadedState.activeWorkout;
+                appState = { ...appState, ...loadedState, currentPage: loadedState.currentPage || 'today' };
+            }
+        };
+
+        const getTodayAsString = () => new Date().toISOString().split('T')[0];
+        const vibrate = (duration = 50) => { if ('vibrate' in navigator) { navigator.vibrate(duration); } };
+
+        const handleStepper = (e) => {
+            vibrate(20);
+            const control = e.currentTarget.dataset.control;
+            const [target, action] = control.split('-');
+            const valueEl = document.getElementById(`${target}-value`);
+            if (!valueEl) return;
+            let currentValue = parseFloat(valueEl.textContent);
+            const step = target === 'weight' ? 2.5 : 1;
+            if (action === 'plus') currentValue += step;
+            else if (action === 'minus') currentValue -= step;
+            valueEl.textContent = Math.max(0, currentValue);
+        };
+        
+        const checkAndSavePR = async (logData) => {
+            if (logData.reps <= 0 || logData.weight <= 0) return;
+            const prRef = doc(db, `artifacts/${appId}/users/${userId}/personal_records`, logData.exerciseName);
+            const prDoc = await getDoc(prRef);
+            let prs = prDoc.exists() ? prDoc.data() : {};
+            const prKey = `${logData.reps}reps`;
+            if (!prs[prKey] || logData.weight > prs[prKey]) {
+                prs[prKey] = logData.weight;
+                await setDoc(prRef, prs, { merge: true });
+                sessionPRs.push({ exercise: logData.exerciseName, pr: `${logData.weight}kg x ${logData.reps}` });
+            }
+        };
+
+        const handleLogSet = async () => {
+            vibrate();
+            const ex = activeWorkout.exercises[appState.currentExerciseIndex];
+            const weight = parseFloat(document.getElementById('weight-value').textContent);
+            const reps = parseInt(document.getElementById('reps-value').textContent);
+            if (reps <= 0) { alert("Le ripetizioni devono essere maggiori di zero."); return; }
+            const logData = { userId, date: getTodayAsString(), workoutKey: activeWorkout.key, workoutName: activeWorkout.name, exerciseName: ex.name, setIndex: appState.currentSetIndex, weight, reps, volume: weight * reps, timestamp: Timestamp.now() };
+            try {
+                await addDoc(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), logData);
+                await checkAndSavePR(logData);
+                lastUsedData.set(ex.name, { weight, reps });
+                logsCache.delete(getTodayAsString());
+                
+                if (appState.currentSetIndex >= ex.sets) {
+                    appState.currentExerciseIndex++;
+                    if (appState.currentExerciseIndex >= activeWorkout.exercises.length) {
+                        handleFinishWorkout();
+                    } else {
+                        appState.currentSetIndex = 1;
+                        appState.currentPage = 'today';
+                        saveStateToLocalStorage();
+                        renderApp();
+                    }
+                } else {
+                    appState.currentPage = 'rest';
+                    appState.restDuration = ex.rest;
+                    saveStateToLocalStorage();
+                    renderApp();
+                }
+            } catch (error) { console.error("Errore salvataggio:", error); }
+        };
+
+        const fetchLastUsedDataForExercise = async (exerciseName) => {
+            if (lastUsedData.has(exerciseName)) return lastUsedData.get(exerciseName);
+            
+            const q = query(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), where("exerciseName", "==", exerciseName));
+            const snapshot = await getDocs(q);
+            if (!snapshot.empty) {
+                const docs = snapshot.docs.map(doc => doc.data());
+                docs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
+                const lastLog = docs[0];
+                const data = { weight: lastLog.weight, reps: lastLog.reps };
+                lastUsedData.set(exerciseName, data);
+                return data;
+            }
+            return null;
+        };
+
+        const handleStartWorkout = (e) => {
+            const key = e.currentTarget.dataset.workoutKey;
+            activeWorkout = workoutPlan[key];
+            appState = { ...appState, currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1, workoutStartTime: Date.now() };
+            sessionPRs = [];
+            lastUsedData.clear();
             saveStateToLocalStorage();
             renderApp();
         };
@@ -218,7 +520,7 @@
         
         const renderTodayPage = async () => {
             if (activeWorkout && appState.currentExerciseIndex !== null) {
-                return renderExerciseFocusMode();
+                return await renderExerciseFocusMode();
             }
             if (activeWorkout) {
                  const todayStr = getTodayAsString();
@@ -233,12 +535,13 @@
                 const todayLogs = logsCache.get(todayStr) || {};
                 return `<div class="p-4 space-y-4"> <div class="flex justify-between items-start"> <div><p class="font-bold text-violet-400">Sessione Attiva</p><h1 class="text-3xl font-bold text-white mt-1">${activeWorkout.name}</h1></div> <button id="finish-workout" class="bg-stone-800 text-sm font-semibold text-stone-300 py-2 px-4 rounded-lg">Termina Sessione</button> </div> <div class="space-y-3"> ${activeWorkout.exercises.map((ex, index) => { const isCompleted = todayLogs[ex.name]?.filter(Boolean).length >= ex.sets; return `<button data-ex-index="${index}" class="start-exercise-btn w-full text-left p-4 rounded-xl shadow-lg flex items-center justify-between transition-transform duration-200 active:scale-95 ${isCompleted ? 'bg-green-900/50 border border-green-700' : 'bg-stone-900 border border-stone-800'}"><div><h3 class="font-bold text-lg ${isCompleted ? 'text-green-300' : 'text-white'}">${ex.name}</h3><p class="text-sm ${isCompleted ? 'text-green-400/80' : 'text-stone-400'}">${ex.sets} x ${ex.reps} reps</p></div> ${isCompleted ? '<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>'}</button>` }).join('')} </div> </div>`;
             }
-            return `<div class="p-4 h-screen flex flex-col justify-center items-center text-center"><svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-violet-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg><h1 class="text-2xl font-bold text-white mt-4">Nessun Allenamento Attivo</h1><p class="text-stone-400 mt-2 max-w-xs">Vai alla sezione "Piano" per scegliere e iniziare la tua sessione di oggi.</p><button class="go-to-plan-btn mt-6 bg-violet-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg">Scegli Allenamento</button></div>`;
+            return `<div class="p-4"><svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-violet-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg><h1 class="text-2xl font-bold text-white mt-4">Nessun Allenamento Attivo</h1><p class="text-stone-400 mt-2 max-w-xs mx-auto">Vai alla sezione "Piano" per scegliere e iniziare la tua sessione di oggi.</p><button class="go-to-plan-btn mt-6 bg-violet-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg">Scegli Allenamento</button></div>`;
         };
 
-        const renderExerciseFocusMode = () => {
+        const renderExerciseFocusMode = async () => {
             const ex = activeWorkout.exercises[appState.currentExerciseIndex];
-            const lastData = lastUsedData.get(ex.name) || { weight: 0, reps: 0 };
+            const lastData = lastUsedData.get(ex.name) || await fetchLastUsedDataForExercise(ex.name) || { weight: 0, reps: 0 };
+            lastUsedData.set(ex.name, lastData);
             const progressDots = Array.from({length: ex.sets}, (_, i) => `<div class="h-2 w-2 rounded-full ${i < appState.currentSetIndex - 1 ? 'bg-violet-500' : 'bg-stone-700'}"></div>`).join('');
             return `<div class="h-screen flex flex-col p-4 bg-stone-950"> <div class="flex items-center"><button id="back-to-overview" class="p-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg></button><div class="text-center flex-1"><h2 class="font-bold text-xl text-white">${ex.name}</h2><p class="text-stone-400 text-sm">${ex.sets} x ${ex.reps} reps</p></div><div class="w-8"></div></div> <div class="flex-1 flex flex-col items-center justify-center"><p class="font-bold text-stone-400">SERIE ${appState.currentSetIndex}</p><div class="flex items-center gap-4 my-8"><div class="text-center"><label class="text-sm font-bold text-stone-300">PESO (KG)</label><div class="flex items-center gap-2 mt-2"><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="weight-minus">-</button><span id="weight-value" class="text-6xl font-black text-white w-32 text-center">${lastData.weight}</span><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="weight-plus">+</button></div></div></div><div class="flex items-center gap-4"><div class="text-center"><label class="text-sm font-bold text-stone-300">REPS</label><div class="flex items-center gap-2 mt-2"><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="reps-minus">-</button><span id="reps-value" class="text-6xl font-black text-white w-32 text-center">${lastData.reps}</span><button class="stepper-btn h-16 w-16 rounded-xl text-4xl font-light" data-control="reps-plus">+</button></div></div></div></div> <div class="flex items-center justify-center gap-2 mb-4">${progressDots}</div><button id="log-set-btn" class="w-full bg-gradient-to-r from-violet-600 to-violet-800 text-white font-bold text-lg py-5 rounded-2xl shadow-lg active:scale-95 transition-transform duration-200">REGISTRA SERIE</button> </div>`;
         };
@@ -367,6 +670,11 @@
 
         const renderApp = async () => {
             appContent.classList.add('page-transition-exit');
+            if (!activeWorkout && appState.currentPage === 'today') {
+                appContent.classList.add('is-empty');
+            } else {
+                appContent.classList.remove('is-empty');
+            }
             await new Promise(resolve => setTimeout(resolve, 150));
             let renderer;
             switch(appState.currentPage) {
