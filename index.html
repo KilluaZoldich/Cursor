@@ -86,7 +86,7 @@
         const workoutPlan = {
             1: { key: 1, name: "Upper Body - Forza", icon: `🏋️‍♂️`, exercises: [ { name: "Panca Piana", sets: 4, reps: "6-8", rest: 120 }, { name: "Rematore", sets: 4, reps: "6-8", rest: 120 }, { name: "Lento Avanti", sets: 3, reps: "8-10", rest: 90 }, { name: "Trazioni", sets: 3, reps: "Max", rest: 90 }, { name: "Dip", sets: 3, reps: "8-12", rest: 60 }, { name: "Curl EZ", sets: 3, reps: "8-12", rest: 60 } ]},
             2: { key: 2, name: "Lower Body - Forza", icon: `🦵`, exercises: [ { name: "Squat", sets: 4, reps: "6-8", rest: 120 }, { name: "Stacchi Rumeni", sets: 4, reps: "8-10", rest: 120 }, { name: "Leg Press", sets: 3, reps: "10-12", rest: 90 }, { name: "Affondi", sets: 3, reps: "10/gamba", rest: 90 }, { name: "Calf Raise", sets: 4, reps: "12-15", rest: 60 }, { name: "Plank", sets: 3, reps: "Max", rest: 60 } ]},
-            4: { key: 4, name: "Upper Body - Ipertrofia", icon: `💪`, exercises: [ { name: "Panca Inclinata", sets: 4, reps: "10-12", rest: 90 }, { name: "Pulley", sets: 4, reps: "10-12", rest: 90 }, { name: "Spinte Manubri", sets: 3, reps: "12-15", rest: 75 }, { name: "Alzate Laterali", sets: 3, reps: "12-15", rest: 60 }, { name: "French Press", sets: 3, reps: "12-15", rest: 60 }, { name: "Curl a Martello", sets: 3, reps: "12-15", rest: 60 } ]},
+            4: { key: 4, name: "Upper Body - Ipertrofia", icon: `�`, exercises: [ { name: "Panca Inclinata", sets: 4, reps: "10-12", rest: 90 }, { name: "Pulley", sets: 4, reps: "10-12", rest: 90 }, { name: "Spinte Manubri", sets: 3, reps: "12-15", rest: 75 }, { name: "Alzate Laterali", sets: 3, reps: "12-15", rest: 60 }, { name: "French Press", sets: 3, reps: "12-15", rest: 60 }, { name: "Curl a Martello", sets: 3, reps: "12-15", rest: 60 } ]},
             5: { key: 5, name: "Lower Body - Ipertrofia", icon: `🔥`, exercises: [ { name: "Front Squat", sets: 4, reps: "10-12", rest: 90 }, { name: "Leg Curl", sets: 4, reps: "12-15", rest: 75 }, { name: "Leg Extension", sets: 3, reps: "15-20", rest: 60 }, { name: "Hip Thrust", sets: 4, reps: "10-12", rest: 90 }, { name: "Calf Seduto", sets: 4, reps: "15-20", rest: 60 }, { name: "Crunch ai Cavi", sets: 3, reps: "15-20", rest: 60 } ]},
         };
         const allExercises = [...new Set(Object.values(workoutPlan).flatMap(day => day.exercises.map(ex => ex.name)))].sort();
@@ -428,25 +428,30 @@
                 return;
             }
 
-            const app = initializeApp(firebaseConfigCheck);
-            auth = getAuth(app);
-            db = getFirestore(app);
+            try {
+                const app = initializeApp(firebaseConfigCheck);
+                auth = getAuth(app);
+                db = getFirestore(app);
 
-            navButtons.forEach(button => button.addEventListener('click', () => navigate(button.dataset.page)));
+                navButtons.forEach(button => button.addEventListener('click', () => navigate(button.dataset.page)));
 
-            onAuthStateChanged(auth, async (user) => {
-                if (user) userId = user.uid;
-                else if (typeof __initial_auth_token !== 'undefined') {
-                    try { userId = (await signInWithCustomToken(auth, __initial_auth_token)).user.uid; }
-                    catch (e) { userId = (await signInAnonymously(auth)).user.uid; }
-                } else { userId = (await signInAnonymously(auth)).user.uid; }
-                if (userId) {
-                    document.body.addEventListener('pointerdown', initAudio, { once: true });
-                    setupPWA();
-                    loadStateFromLocalStorage();
-                    renderApp();
-                }
-            });
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) userId = user.uid;
+                    else if (typeof __initial_auth_token !== 'undefined') {
+                        try { userId = (await signInWithCustomToken(auth, __initial_auth_token)).user.uid; }
+                        catch (e) { userId = (await signInAnonymously(auth)).user.uid; }
+                    } else { userId = (await signInAnonymously(auth)).user.uid; }
+                    if (userId) {
+                        document.body.addEventListener('pointerdown', initAudio, { once: true });
+                        setupPWA();
+                        loadStateFromLocalStorage();
+                        renderApp();
+                    }
+                });
+            } catch (e) {
+                console.error("Firebase initialization failed:", e);
+                appContent.innerHTML = `<div class="p-4 text-center"><h1 class="text-2xl font-bold text-red-500">Errore di Inizializzazione</h1><p class="text-stone-400 mt-2">Impossibile avviare l'applicazione.</p></div>`;
+            }
         });
     </script>
 </body>
