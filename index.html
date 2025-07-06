@@ -69,7 +69,17 @@
         };
         const allExercises = [...new Set(Object.values(workoutPlan).flatMap(day => day.exercises.map(ex => ex.name)))].sort();
         
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "YOUR_API_KEY" };
+        // FIX: Provide a complete fallback Firebase config to prevent crash
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : { 
+                apiKey: "YOUR_API_KEY", 
+                authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+                projectId: "YOUR_PROJECT_ID",
+                storageBucket: "YOUR_PROJECT_ID.appspot.com",
+                messagingSenderId: "YOUR_SENDER_ID",
+                appId: "YOUR_APP_ID"
+              };
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -134,18 +144,17 @@
                 lastUsedData.set(ex.name, { weight, reps });
                 logsCache.delete(getTodayAsString());
                 
-                // Guided Flow Logic
-                if (appState.currentSetIndex >= ex.sets) { // Last set of this exercise
-                    appState.currentExerciseIndex++; // Advance to next exercise
-                    if (appState.currentExerciseIndex >= activeWorkout.exercises.length) { // Is it the last exercise of the workout?
-                        handleFinishWorkout(); // Auto-finish
+                if (appState.currentSetIndex >= ex.sets) {
+                    appState.currentExerciseIndex++;
+                    if (appState.currentExerciseIndex >= activeWorkout.exercises.length) {
+                        handleFinishWorkout();
                     } else {
-                        appState.currentSetIndex = 1; // Reset set counter for next exercise
-                        appState.currentPage = 'today'; // Go to next exercise focus mode
+                        appState.currentSetIndex = 1;
+                        appState.currentPage = 'today';
                         saveStateToLocalStorage();
                         renderApp();
                     }
-                } else { // Not the last set, go to rest
+                } else {
                     appState.currentPage = 'rest';
                     appState.restDuration = ex.rest;
                     saveStateToLocalStorage();
@@ -188,12 +197,13 @@
             localStorage.removeItem('appState');
             renderApp();
         };
-
-        // --- FUNZIONI DI RENDER ---
         
         const renderTodayPage = async () => {
+            if (activeWorkout && appState.currentExerciseIndex !== null) {
+                return renderExerciseFocusMode();
+            }
             if (activeWorkout) {
-                const todayStr = getTodayAsString();
+                 const todayStr = getTodayAsString();
                 if (!logsCache.has(todayStr)) {
                     const logsRef = collection(db, `artifacts/${appId}/users/${userId}/workout_logs`);
                     const q = query(logsRef, where("date", "==", todayStr), where("workoutKey", "==", activeWorkout.key));
@@ -359,6 +369,11 @@
             navButtons.forEach(btn => btn.classList.toggle('bottom-nav-active', btn.dataset.page === page));
             renderApp();
         };
+
+        const initAudio = () => {
+            Tone.start();
+            document.body.removeEventListener('pointerdown', initAudio);
+        };
         
         // --- INIZIALIZZAZIONE ---
         navButtons.forEach(button => button.addEventListener('click', () => navigate(button.dataset.page)));
@@ -370,6 +385,7 @@
                 catch (e) { userId = (await signInAnonymously(auth)).user.uid; }
             } else { userId = (await signInAnonymously(auth)).user.uid; }
             if (userId) {
+                document.body.addEventListener('pointerdown', initAudio, { once: true });
                 loadStateFromLocalStorage();
                 renderApp();
             }
