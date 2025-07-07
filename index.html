@@ -56,6 +56,12 @@
             background: linear-gradient(145deg, #1c1917, #292524);
             border: 1px solid #44403c;
         }
+        /* Toast notification */
+        #toast {
+            left: 50%;
+            transform: translateX(-50%);
+            transition: opacity 0.3s ease;
+        }
     </style>
 </head>
 <body class="text-gray-300">
@@ -79,6 +85,9 @@
     
     <div id="tooltip" style="position: absolute; text-align: center; padding: 8px; font-size: 12px; background: #1c1917; color: #e7e5e4; border: 1px solid #44403c; border-radius: 8px; pointer-events: none; opacity: 0; transition: opacity 0.2s;"></div>
 
+    <!-- Toast notification container -->
+    <div id="toast" class="fixed bottom-24 opacity-0 pointer-events-none bg-stone-800 text-white font-semibold py-2 px-4 rounded-lg shadow-lg z-50"></div>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -96,6 +105,45 @@
         let logsCache = new Map(); let lastUsedData = new Map();
         let sessionPRs = [];
 
+        /* =====================
+           Helpers / UI Feedback
+        ======================*/
+        const showToast = (message) => {
+            const toastEl = document.getElementById('toast');
+            if (!toastEl) return;
+            toastEl.textContent = message;
+            toastEl.classList.remove('opacity-0');
+            toastEl.classList.add('opacity-100');
+            setTimeout(() => {
+                toastEl.classList.add('opacity-0');
+            }, 2500);
+        };
+
+        /* Swipe navigation between Today → Progress → Plan */
+        const pagesOrder = ['today', 'progress', 'plan'];
+        const setupSwipeNavigation = () => {
+            let touchStartX = 0;
+            const threshold = 50; // px
+            appContent.addEventListener('touchstart', (e) => {
+                touchStartX = e.changedTouches[0].screenX;
+            }, { passive: true });
+            appContent.addEventListener('touchend', (e) => {
+                const touchEndX = e.changedTouches[0].screenX;
+                const diff = touchStartX - touchEndX;
+                if (Math.abs(diff) < threshold) return;
+
+                // Restrict navigation only on the three main pages and when not in exercise focus mode
+                if (!pagesOrder.includes(appState.currentPage)) return;
+                if (appState.currentPage === 'today' && activeWorkout && appState.currentExerciseIndex !== null) return;
+
+                const currentIdx = pagesOrder.indexOf(appState.currentPage);
+                let newIdx = currentIdx;
+                if (diff > 0 && currentIdx < pagesOrder.length - 1) newIdx++; // swipe left
+                else if (diff < 0 && currentIdx > 0) newIdx--; // swipe right
+                if (newIdx !== currentIdx) navigate(pagesOrder[newIdx]);
+            }, { passive: true });
+        };
+        
         const appContent = document.getElementById('app-content');
         const navButtons = document.querySelectorAll('.nav-button');
         let appState = { currentPage: 'today', currentExerciseIndex: null, currentSetIndex: 1, workoutStartTime: null, restDuration: 0 };
@@ -172,7 +220,13 @@
                 await addDoc(collection(db, `artifacts/${appId}/users/${userId}/workout_logs`), logData);
             }
 
+            const prePRCount = sessionPRs.length;
             await checkAndSavePR(logData);
+            if (sessionPRs.length > prePRCount) {
+                showToast('Nuovo Record Personale!');
+            } else {
+                showToast('Serie registrata');
+            }
             lastUsedData.set(ex.name, { weight, reps });
             logsCache.delete(getTodayAsString());
             
@@ -387,6 +441,14 @@
                     if (timeLeftEl) timeLeftEl.textContent = timeLeft;
                     const progress = (duration - timeLeft) / duration;
                     if(progressRing) progressRing.style.strokeDashoffset = 282.6 * (1 - progress);
+
+                    // Color feedback: red → yellow → green as timer progresses
+                    if (progressRing) {
+                        let color = '#22c55e'; // green-500
+                        if (progress < 0.33) color = '#ef4444'; // red-500
+                        else if (progress < 0.66) color = '#fbbf24'; // amber-400
+                        progressRing.style.stroke = color;
+                    }
                 };
 
                 const interval = setInterval(() => {
@@ -518,6 +580,7 @@
             document.body.addEventListener('pointerdown', initAudio, { once: true });
             setupPWA();
             loadStateFromLocalStorage();
+            setupSwipeNavigation();
             renderApp();
         }
     </script>
